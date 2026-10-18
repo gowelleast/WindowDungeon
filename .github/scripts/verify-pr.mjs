@@ -82,6 +82,11 @@ function cleanMarkdownOutput(text) {
   }
   // GitHub 마크다운에서 4칸 이상의 들여쓰기는 <pre><code> 코드 블록으로 렌더링되므로, 행 시작의 4칸 이상 공백 제거
   cleaned = cleaned.split('\n').map(line => line.replace(/^ {4,}/, '')).join('\n');
+  // 중복 헤더 또는 서론 제거
+  cleaned = cleaned.replace(/^#+.*코드 검증 질의서.*\n+/gi, '');
+  cleaned = cleaned.replace(/^본 PR의 안정적인 배포.*\n+/gi, '');
+  cleaned = cleaned.replace(/^머지 승인\(Approval\)을 위해.*\n+/gi, '');
+  cleaned = cleaned.replace(/^---\s*\n+/g, '');
   return cleaned.trim();
 }
 
@@ -136,6 +141,7 @@ async function handlePullRequest(octokit, genAI, modelName) {
 1. 전체 응답을 백틱 코드 블록(\`\`\`)으로 감싸지 마십시오.
 2. 각 줄 시작 부분에 4칸 이상의 들여쓰기(공백)를 절대 넣지 마십시오. (GitHub 마크다운에서 코드 박스로 렌더링되어 가로 스크롤이 생기는 문제를 방지하기 위함)
 3. 가독성을 위해 각 질문은 '### 1. [핵심 주제]' 소제목을 달고 본문과 줄바꿈을 명확히 구분하십시오.
+4. 인사말, '코드 검증 질의서' 제목, 서론/결론 안내 문구는 시스템이 자동으로 붙이므로 출력하지 마시고, 오직 '### 1. [질문 제목]'부터 곧바로 출력하십시오.
 
 [PR 제목]
 ${pr.title}
