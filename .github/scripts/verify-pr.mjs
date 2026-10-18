@@ -15,10 +15,10 @@ async function main() {
 
     const octokit = github.getOctokit(token);
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-pro';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
     const eventName = github.context.eventName;
-    console.log(`[Reverse-Verification] Triggered by event: ${eventName} using Gemini (${modelName})`);
+    console.log(`[Reverse-Verification] Triggered by event: ${eventName} (Preferred model: ${modelName})`);
 
     if (eventName === 'pull_request') {
       await handlePullRequest(octokit, genAI, modelName);
@@ -30,6 +30,44 @@ async function main() {
   } catch (error) {
     core.setFailed(`[Reverse-Verification] Error: ${error.message}`);
   }
+}
+
+/**
+ * 활성화된 모델을 순차적으로 탐색하여 실패 없이 응답을 생성하는 헬퍼 함수
+ */
+async function generateWithFallback(genAI, preferredModel, prompt, options = {}) {
+  const candidates = Array.from(new Set([
+    preferredModel,
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-exp',
+    'gemini-1.5-pro-latest',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+  ].filter(Boolean)));
+
+  let lastError = null;
+  for (const name of candidates) {
+    try {
+      console.log(`[Reverse-Verification] Trying model: ${name}...`);
+      const model = genAI.getGenerativeModel({
+        model: name,
+        ...options,
+      });
+      const response = await model.generateContent(prompt);
+      console.log(`[Reverse-Verification] Successfully generated content using ${name}!`);
+      return response;
+    } catch (err) {
+      console.warn(`[Reverse-Verification] Model ${name} failed: ${err.message}`);
+      lastError = err;
+      // 404 Not Found 또는 미지원 모델인 경우 다음 후보 모델 시도
+      if (!err.message.includes('404') && !err.message.includes('not found')) {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
 }
 
 /**
@@ -91,12 +129,10 @@ ${diff.slice(0, 15000)}
 \`\`\`
 `;
 
-  const model = genAI.getGenerativeModel({
-    model: modelName,
+  const response = await generateWithFallback(genAI, modelName, prompt, {
     systemInstruction: '당신은 개발자의 코드 이해도를 날카롭게 검증하는 시니어 개발자입니다.',
   });
 
-  const response = await model.generateContent(prompt);
   const questionContent = response.response.text();
 
   // 1-4. PR에 봇 질문 댓글 등록
@@ -217,8 +253,7 @@ ${botComment.body}
 }
 `;
 
-  const model = genAI.getGenerativeModel({
-    model: modelName,
+  const response = await generateWithFallback(genAI, modelName, evaluationPrompt, {
     generationConfig: {
       responseMimeType: 'application/json',
       temperature: 0.2,
@@ -226,7 +261,6 @@ ${botComment.body}
     systemInstruction: '당신은 코드 이해도 답변을 채점하는 시니어 엔지니어입니다. 반드시 지정된 JSON 형식으로만 응답하세요.',
   });
 
-  const response = await model.generateContent(evaluationPrompt);
   const responseText = response.response.text();
 
   let evalResult;
