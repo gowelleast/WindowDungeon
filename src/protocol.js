@@ -7,7 +7,6 @@ export const MSG = {
   ASSIGN: "assign",
   TICK: "tick",
   DOOR_PROMPT: "doorPrompt",
-  FLAG_FOUND: "flagFound",
   PING: "ping",
   SCREENS_UPDATE: "screensUpdate",
   VICTORY: "victory",

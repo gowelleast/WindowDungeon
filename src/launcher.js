@@ -9,6 +9,19 @@ const myWinId = 'launcher';
 window.name = myWinId;
 const channel = new DungeonChannel(myWinId);
 
+// 한 게임 세션 동안 등록한 구독/리스너의 정리 함수 목록.
+// "게임 시작"을 다시 누를 때 이전 세션 것을 모두 해제해 핸들러·로그·screenschange 리스너 중복을 막습니다.
+let sessionDisposers = [];
+
+function disposeSession() {
+  sessionDisposers.forEach((dispose) => dispose());
+  sessionDisposers = [];
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+}
+
 window.addEventListener('beforeunload', (e) => {
   if (worker) {
     e.preventDefault();
@@ -17,14 +30,24 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 document.getElementById('btn-start').addEventListener('click', async () => {
+  disposeSession();
+
   let screens = [];
   let currentScreenLabel = '';
   let left = 0;
   let top = 0;
   
+  let details = null;
   if ('getScreenDetails' in window) {
-    const details = await window.getScreenDetails();
+    try {
+      details = await window.getScreenDetails();
+    } catch (err) {
+      // 권한 거부 등으로 실패하면 단일 화면 폴백 모드로 진행
+      console.warn('[Launcher] getScreenDetails() 실패, 단일 화면 폴백 모드로 전환:', err);
+    }
+  }
 
+  if (details) {
     const formatScreen = (s) => ({
       label: s.label, availLeft: s.availLeft, availTop: s.availTop,
       availWidth: s.availWidth, availHeight: s.availHeight, isPrimary: s.isPrimary
@@ -43,12 +66,20 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     top = details.currentScreen.availTop;
     
     const updateScreens = () => {
-      const activeScreens = getTargetScreens();
-      channel.send(MSG.SCREENS_UPDATE, { screens: activeScreens, currentScreenLabel: details.currentScreen.label });
+      // HELLO 재동기화 시에도 최신 배치를 보내도록 세션 상태를 함께 갱신
+      screens = getTargetScreens();
+      currentScreenLabel = details.currentScreen.label;
+      const data = { screens, currentScreenLabel };
+      channel.send(MSG.SCREENS_UPDATE, data);
+      channel.emitLocal(MSG.SCREENS_UPDATE, data);
     };
 
     details.addEventListener('screenschange', updateScreens);
     details.addEventListener('currentscreenchange', updateScreens);
+    sessionDisposers.push(() => {
+      details.removeEventListener('screenschange', updateScreens);
+      details.removeEventListener('currentscreenchange', updateScreens);
+    });
   } else {
     screens = [{
       label: 'Fallback Screen', availLeft: 0, availTop: 0,
@@ -71,32 +102,31 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   document.getElementById('btn-reset').style.display = 'none';
 
   // 대시보드 컴포넌트 초기화
-  initMinimap(channel);
-  initInspector(channel);
+  sessionDisposers.push(initMinimap(channel));
+  sessionDisposers.push(initInspector(channel));
 
   worker = new Worker('./src/master-worker.js', { type: 'module' });
   
   // Worker가 느리게 시작되는 경우를 대비해, 방(로비 포함)이 생성될 때마다 화면 정보를 확실히 동기화합니다.
-  channel.on(MSG.HELLO, () => {
+  // BroadcastChannel은 자기 자신에게 메시지를 돌려주지 않으므로, 같은 창의 미니맵에는 emitLocal로 전달합니다.
+  sessionDisposers.push(channel.on(MSG.HELLO, () => {
     const data = { screens, currentScreenLabel };
     channel.send(MSG.SCREENS_UPDATE, data);
-    if (channel.handlers[MSG.SCREENS_UPDATE]) {
-      channel.handlers[MSG.SCREENS_UPDATE](data);
-    }
-  });
+    channel.emitLocal(MSG.SCREENS_UPDATE, data);
+  }));
   
   // 만약을 위해 즉시 한번 쏴줌
   const data = { screens, currentScreenLabel };
   channel.send(MSG.SCREENS_UPDATE, data);
 
-  channel.on(MSG.CLOSE_ALL, () => {
+  sessionDisposers.push(channel.on(MSG.CLOSE_ALL, () => {
     if (worker) {
       worker.terminate();
       worker = null;
     }
     // 즉시 전환하지 않고 리셋 버튼 표시
     document.getElementById('btn-reset').style.display = 'block';
-  });
+  }));
 });
 
 document.getElementById('btn-reset').addEventListener('click', () => {

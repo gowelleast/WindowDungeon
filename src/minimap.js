@@ -11,9 +11,10 @@ let msgCount = 0;
 let msgRate = 0;
 let intervalId = null;
 
+/** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다. */
 export function initMinimap(channel) {
   canvas = document.getElementById('minimap-canvas');
-  if (!canvas) return;
+  if (!canvas) return () => {};
   ctx = canvas.getContext('2d');
 
   // 이전 상태 초기화
@@ -32,20 +33,30 @@ export function initMinimap(channel) {
     channel.ping();
   }, 1000);
 
-  channel.on(MSG.SCREENS_UPDATE, (data) => {
-    screens = data.screens;
-    requestAnimationFrame(drawMinimap);
-  });
+  const unsubscribers = [
+    channel.on(MSG.SCREENS_UPDATE, (data) => {
+      screens = data.screens;
+      requestAnimationFrame(drawMinimap);
+    }),
 
-  channel.on(MSG.ASSIGN, (data) => {
-    cellMap.set(data.id, data);
-    requestAnimationFrame(drawMinimap);
-  });
+    channel.on(MSG.ASSIGN, (data) => {
+      cellMap.set(data.id, data);
+      requestAnimationFrame(drawMinimap);
+    }),
 
-  channel.on(MSG.TICK, (data) => {
-    player = data;
-    requestAnimationFrame(drawMinimap);
-  });
+    channel.on(MSG.TICK, (data) => {
+      player = data;
+      requestAnimationFrame(drawMinimap);
+    }),
+  ];
+
+  return () => {
+    unsubscribers.forEach((off) => off());
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
 }
 
 function updateMetrics() {
