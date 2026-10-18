@@ -15,7 +15,7 @@ async function main() {
 
     const octokit = github.getOctokit(token);
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-pro';
 
     const eventName = github.context.eventName;
     console.log(`[Reverse-Verification] Triggered by event: ${eventName} (Preferred model: ${modelName})`);
@@ -70,6 +70,22 @@ async function generateWithFallback(genAI, preferredModel, prompt, options = {})
 }
 
 /**
+ * 마크다운 코드 블록 및 4칸 들여쓰기를 제거하여 일반 텍스트 문단으로 정돈하는 헬퍼 함수
+ */
+function cleanMarkdownOutput(text) {
+  let cleaned = text.trim();
+  // 마크다운 코드 블록(```markdown ... ```)으로 전체가 감싸져 있으면 제거
+  if (cleaned.startsWith('```markdown')) {
+    cleaned = cleaned.replace(/^```markdown\s*/i, '').replace(/```\s*$/, '');
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```\s*/, '').replace(/```\s*$/, '');
+  }
+  // GitHub 마크다운에서 4칸 이상의 들여쓰기는 <pre><code> 코드 블록으로 렌더링되므로, 행 시작의 4칸 이상 공백 제거
+  cleaned = cleaned.split('\n').map(line => line.replace(/^ {4,}/, '')).join('\n');
+  return cleaned.trim();
+}
+
+/**
  * 1. PR 생성 또는 새 커밋 푸시 시: 질문 생성 및 Pending 상태 부여
  */
 async function handlePullRequest(octokit, genAI, modelName) {
@@ -116,6 +132,11 @@ async function handlePullRequest(octokit, genAI, modelName) {
 3. 톤앤매너: 군더더기 없고 건조하며 격식 있는 전문 엔지니어링 표준 톤 (경어체).
 4. 마크다운 형식으로 작성할 것.
 
+[서식 및 가독성 지침]
+1. 전체 응답을 백틱 코드 블록(\`\`\`)으로 감싸지 마십시오.
+2. 각 줄 시작 부분에 4칸 이상의 들여쓰기(공백)를 절대 넣지 마십시오. (GitHub 마크다운에서 코드 박스로 렌더링되어 가로 스크롤이 생기는 문제를 방지하기 위함)
+3. 가독성을 위해 각 질문은 '### 1. [핵심 주제]' 소제목을 달고 본문과 줄바꿈을 명확히 구분하십시오.
+
 [PR 제목]
 ${pr.title}
 
@@ -132,7 +153,8 @@ ${diff.slice(0, 15000)}
     systemInstruction: '당신은 엔지니어링 표준과 코드 품질을 엄격히 검증하는 시니어 소프트웨어 아키텍트입니다.',
   });
 
-  const questionContent = response.response.text();
+  const rawQuestion = response.response.text();
+  const questionContent = cleanMarkdownOutput(rawQuestion);
 
   // 1-4. PR에 봇 질문 댓글 등록
   const commentBody = `${BOT_TAG}
