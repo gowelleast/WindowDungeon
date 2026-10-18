@@ -61,7 +61,6 @@ async function generateWithFallback(genAI, preferredModel, prompt, options = {})
     } catch (err) {
       console.warn(`[Reverse-Verification] Model ${name} failed: ${err.message}`);
       lastError = err;
-      // 404 Not Found 또는 미지원 모델인 경우 다음 후보 모델 시도
       if (!err.message.includes('404') && !err.message.includes('not found')) {
         throw err;
       }
@@ -87,10 +86,10 @@ async function handlePullRequest(octokit, genAI, modelName) {
 
   console.log(`[Reverse-Verification] Analyzing PR #${pull_number} by @${author}`);
 
-  // 1-1. Commit Status를 'Pending'으로 설정하여 머지 차단
+  // 1-1. Commit Status를 'Pending'으로 설정하여 머지 제한
   await setCommitStatus(octokit, owner, repo, headSha, {
     state: 'pending',
-    description: '⏳ 시니어의 역검증 질문 답변을 대기 중입니다.',
+    description: '작성자의 코드 아키텍처 및 구현 의도 검증 답변을 대기 중입니다.',
   });
 
   // 1-2. PR Diff 가져오기
@@ -99,23 +98,23 @@ async function handlePullRequest(octokit, genAI, modelName) {
     console.log('[Reverse-Verification] Empty diff. Approving automatically.');
     await setCommitStatus(octokit, owner, repo, headSha, {
       state: 'success',
-      description: '✅ 변경된 코드 내용이 없습니다.',
+      description: '변경된 코드 내용이 없어 검증을 통과했습니다.',
     });
     return;
   }
 
-  // 1-3. Gemini에게 시니어 면접관 페르소나로 질문 생성 요청
+  // 1-3. Gemini에게 시니어 테크 리드 페르소나로 질문 생성 요청
   const prompt = `
-당신은 실리콘밸리의 깐깐하지만 유쾌한 시니어 소프트웨어 엔지니어이자 테크 면접관입니다.
-요즘 주니어 개발자들이 AI로 코드를 무지성 생성하여 복사/붙여넣기한 뒤 아무 생각 없이 PR을 올리는 풍조를 바로잡고자 합니다.
+당신은 엄격하고 전문적인 시니어 소프트웨어 아키텍트이자 테크 리드입니다.
+코드 리뷰 프로세스의 품질 보증을 위해, PR 작성자(@${author})가 제출한 코드의 설계 타당성, 내부 동작 메커니즘, 기술적 제약사항 및 예외 상황에 대해 정확히 인지하고 있는지 검증하고자 합니다.
 
-아래 PR 정보와 git diff를 분석하고, 작성자(@${author})가 **"자신이 짠 코드의 내부 동작 원리, 설계 의도, 제약사항, 또는 엣지 케이스"**를 진짜 이해하고 있는지 검증할 날카로운 질문 1~2개를 작성하세요.
+제출된 PR 메타데이터와 Git Diff를 분석하여, 작성자의 기술적 이해도를 엄밀히 평가할 수 있는 핵심 검증 질의 1~2개를 작성하십시오.
 
-[요구사항]
-1. 단순 문법 질문이나 오타 지적이 아닌, 아키텍처/자료구조/동시성/에러 핸들링/트레이드오프 관련 질문을 던지세요.
-2. 질문은 명확한 단답형 또는 1~3문장으로 답할 수 있는 서술형 퀴즈 형식이어야 합니다.
-3. 톤앤매너: 정중하지만 날카롭고 약간의 위트(커피 마시는 시니어 느낌)를 담아주세요.
-4. 마크다운 형식으로 작성하세요.
+[질의 작성 원칙]
+1. 단순 문법, 코드 스타일, 오타 등 피상적인 내용은 배제하고, 아키텍처 설계 의도, 자료구조/알고리즘 선택 이유, 상태 관리, 엣지 케이스 및 부작용(Side Effects) 가능성을 중점적으로 질의할 것.
+2. 작성자가 논리적 근거를 바탕으로 명확히 소명할 수 있는 질문으로 구성할 것.
+3. 톤앤매너: 군더더기 없고 건조하며 격식 있는 전문 엔지니어링 표준 톤 (경어체).
+4. 마크다운 형식으로 작성할 것.
 
 [PR 제목]
 ${pr.title}
@@ -130,26 +129,25 @@ ${diff.slice(0, 15000)}
 `;
 
   const response = await generateWithFallback(genAI, modelName, prompt, {
-    systemInstruction: '당신은 개발자의 코드 이해도를 날카롭게 검증하는 시니어 개발자입니다.',
+    systemInstruction: '당신은 엔지니어링 표준과 코드 품질을 엄격히 검증하는 시니어 소프트웨어 아키텍트입니다.',
   });
 
   const questionContent = response.response.text();
 
   // 1-4. PR에 봇 질문 댓글 등록
   const commentBody = `${BOT_TAG}
-### ☕ [시니어의 역검증 타임] 커피 한 잔 마시면서 코드 봤는데요...
+## 📋 [코드 검증 질의서] 아키텍처 및 구현 의도 검증
 
-안녕하세요 @${author}님! 요즘 AI가 코드를 참 잘 짜주죠? 😉  
-하지만 머지(Merge)되기 전에, 작성자 본인이 이 코드의 흐름을 정확히 꿰뚫고 있는지 확인이 필요합니다.
+본 PR의 안정적인 배포 및 코드 품질 보증을 위해, 작성자(@${author})의 기술 검증 질의를 등록합니다.
 
-아래 질문에 대해 **이 PR의 댓글로 답변**을 남겨주세요. 타당한 답변이 확인되면 즉시 **APPROVE** 리뷰가 등록됩니다!
+머지 승인(Approval)을 위해 아래 기술 질의에 대해 **본 PR의 댓글로 구체적인 설계 근거 및 답변**을 작성해 주시기 바랍니다.
 
 ---
 
 ${questionContent}
 
 ---
-*💡 TIP: 당황하지 마시고 코드를 작성할 때 고려했던 설계 의도와 동작 배경을 솔직하게 설명해 주시면 됩니다.*
+*안내: 본 검증은 CI/CD 자동화 정책에 의해 필수 진행되며, 작성자의 답변이 기술적으로 타당하다고 판정될 시 승인 상태로 전환됩니다.*
 `;
 
   await octokit.rest.issues.createComment({
@@ -221,35 +219,33 @@ async function handleIssueComment(octokit, genAI, modelName) {
 
   // 2-1. Gemini에게 답변 채점 요청 (JSON 포맷 강제)
   const evaluationPrompt = `
-당신은 PR 작성자의 답변을 엄격하게 심사하는 시니어 테크 리드입니다.
-아래에 코드 Diff, 시니어가 출제한 검증 질문, 그리고 PR 작성자(@${prAuthor})의 답변이 주어집니다.
-
-작성자의 답변이 질문의 핵심 의도를 짚고 있으며, 본인이 코드를 직접 이해하고 짠 것인지 평가하세요.
+당신은 코드 리뷰 및 머지 적격성을 심사하는 엄격한 테크 리드입니다.
+제출된 코드 Diff, 기존에 발송된 기술 질의, 그리고 PR 작성자(@${prAuthor})의 소명 답변을 면밀히 대조하여 작성자의 코드 이해도를 공정하고 엄격하게 평가하십시오.
 
 [코드 Diff (요약)]
 \`\`\`diff
 ${diff.slice(0, 10000)}
 \`\`\`
 
-[출제된 질문]
+[기술 질의 내용]
 ${botComment.body}
 
-[작성자의 답변]
+[작성자 소명 답변]
 "${comment.body}"
 
-[채점 기준]
-- 10점 만점 기준:
-  - 1~4점: 엉뚱한 답변, 피상적인 답변, AI 환각 답변, 동문서답
-  - 5~6점: 절반만 맞거나 핵심 원리를 모호하게 얼버무림
-  - 7~10점: 코드 동작 원리, 제약사항, 설계 의도를 정확히 이해하고 명쾌하게 설명함
-- 7점 이상일 때만 passed: true
+[평가 기준]
+- 10점 만점 척도:
+  - 1~4점: 질문의 요점을 파악하지 못함, 모호하거나 사실과 다른 설명, 피상적인 답변
+  - 5~6점: 기본적인 동작은 언급했으나 핵심 원리나 기술적 트레이드오프에 대한 이해 부족
+  - 7~10점: 코드의 구현 메커니즘, 설계 의도, 예외 상황에 대한 명확하고 타당한 기술적 소명
+- 7점 이상일 때만 passed: true 판정
 
-반드시 아래 JSON 스키마 형식으로만 응답하세요:
+반드시 아래 JSON 스키마 형식으로만 응답하십시오:
 {
   "score": number,
   "passed": boolean,
-  "feedback": "작성자에게 전달할 총평 코멘트 (존댓말, 격려/피드백 포함)",
-  "reason": "채점 사유 요약"
+  "feedback": "작성자에게 전달할 기술적 피드백 요약 (격식 있는 경어체, 건조하고 명확하게)",
+  "reason": "점수 산정 근거 (내부 기록용)"
 }
 `;
 
@@ -258,7 +254,7 @@ ${botComment.body}
       responseMimeType: 'application/json',
       temperature: 0.2,
     },
-    systemInstruction: '당신은 코드 이해도 답변을 채점하는 시니어 엔지니어입니다. 반드시 지정된 JSON 형식으로만 응답하세요.',
+    systemInstruction: '당신은 코드 품질과 구현 원리를 엄격히 채점하는 테크 리드입니다. 반드시 지정된 JSON 형식으로만 응답하십시오.',
   });
 
   const responseText = response.response.text();
@@ -275,13 +271,14 @@ ${botComment.body}
   // 2-2. 평가 결과 처리
   if (evalResult.passed) {
     // PASS: 성공 피드백 댓글 등록, Commit Status Success 전환, APPROVE 리뷰 제출
-    const successComment = `### 🎉 [역검증 통과] 합격입니다! (점수: ${evalResult.score}/10) ✅
+    const successComment = `## ✅ [코드 검증 통과] 소명 확인 및 머지 승인 (평가 점수: ${evalResult.score}/10)
 
-@${prAuthor}님, 훌륭합니다! 자신이 작성한 코드의 맥락과 원리를 완벽하게 파악하고 계시네요. 👏
+작성자(@${prAuthor})의 소명 답변을 검토한 결과, 코드의 설계 의도 및 내부 구현 메커니즘이 타당하게 파악되었음을 확인했습니다.
 
-> **시니어의 한마디**: ${evalResult.feedback}
+### 📌 기술 검토 피드백
+> ${evalResult.feedback}
 
-머지 조건을 충족하였으므로 시니어 봇의 **APPROVE** 리뷰를 등록합니다. 수고하셨습니다! 🚀`;
+본 PR에 대한 시니어 검증 절차를 완료 처리하며, 공식 **APPROVE** 리뷰를 등록합니다.`;
 
     await octokit.rest.issues.createComment({
       owner,
@@ -292,7 +289,7 @@ ${botComment.body}
 
     await setCommitStatus(octokit, owner, repo, headSha, {
       state: 'success',
-      description: `✅ 코드 이해도 검증 통과 (점수: ${evalResult.score}/10)`,
+      description: `코드 이해도 검증 통과 (평가 점수: ${evalResult.score}/10)`,
     });
 
     // PR 리뷰 APPROVE
@@ -302,7 +299,7 @@ ${botComment.body}
         repo,
         pull_number,
         event: 'APPROVE',
-        body: `LGTM! ☕ (Reverse-Verification Bot: 작성자의 코드 이해도 검증 통과 - ${evalResult.score}/10점)`,
+        body: `LGTM. (Reverse-Verification: 작성자 기술 소명 완료 - 평가 점수: ${evalResult.score}/10)`,
       });
       console.log(`[Reverse-Verification] APPROVE review submitted on PR #${pull_number}`);
     } catch (reviewError) {
@@ -310,14 +307,15 @@ ${botComment.body}
     }
   } else {
     // FAIL: 피드백 댓글 등록 및 Commit Status Failure 유지
-    const failComment = `### ❌ [역검증 미흡] 재검토가 필요합니다 (점수: ${evalResult.score}/10)
+    const failComment = `## ⚠️ [코드 검증 반려] 추가 소명 필요 (평가 점수: ${evalResult.score}/10)
 
-@${prAuthor}님, 아쉽지만 답변 내용으로는 코드의 세부 동작 원리를 충분히 이해했다고 판단하기 어렵습니다. 😅
+작성자(@${prAuthor})의 답변 내용을 검토한 결과, 구현 원리 및 잠재적 리스크에 대한 기술적 소명이 미흡합니다.
 
+### 📌 검토 의견
 > **피드백**: ${evalResult.feedback}
-> **보완 필요점**: ${evalResult.reason}
+> **보완 필요 항목**: ${evalResult.reason}
 
-코드가 실제로 어떻게 동작하는지 다시 한번 살펴보시고, **이 댓글 아래에 추가 답변**을 남겨주시면 다시 채점해 드립니다! 화이팅! 💪`;
+해당 변경 사항의 동작 메커니즘과 사이드 이펙트를 재확인하신 후, **본 PR에 추가 소명 댓글**을 작성해 주시기 바랍니다.`;
 
     await octokit.rest.issues.createComment({
       owner,
@@ -328,7 +326,7 @@ ${botComment.body}
 
     await setCommitStatus(octokit, owner, repo, headSha, {
       state: 'failure',
-      description: `❌ 코드 이해도 부족 (점수: ${evalResult.score}/10). 재답변 필요`,
+      description: `코드 이해도 소명 미흡 (점수: ${evalResult.score}/10). 재소명 필요`,
     });
   }
 }
