@@ -1,0 +1,40 @@
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 20px;
+  background: #1e1e1e;
+  color: #fff;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  background: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
+
+button:hover {
+  background: #45a049;
+}
+
+pre#output {
+  margin-top: 20px;
+  white-space: pre-wrap;
+  background: #2d2d2d;
+  padding: 20px;
+  border-radius: 6px;
+  border: 1px solid #444;
+  line-height: 1.5;
+}
+
+@keyframes flash {
+  0% { background-color: #1e1e1e; }
+  50% { background-color: #facc15; }
+  100% { background-color: #1e1e1e; }
+}
+
+.victory-flash {
+  animation: flash 0.5s ease-in-out infinite;
+}
