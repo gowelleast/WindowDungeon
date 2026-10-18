@@ -1,0 +1,47 @@
+name: "Senior Reverse-Verification Bot"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  pull-requests: write
+  issues: write
+  statuses: write
+  contents: read
+
+jobs:
+  verify:
+    # 봇이 단 댓글이거나 PR이 아닌 일반 이슈 댓글이면 조기 건너뜁니다
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && !contains(github.event.comment.user.login, '[bot]'))
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: .github/scripts/package.json
+
+      - name: Install Bot Dependencies
+        run: npm install
+        working-directory: .github/scripts
+
+      - name: Run Reverse-Verification
+        run: node .github/scripts/verify-pr.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: "gemini-1.5-pro"
