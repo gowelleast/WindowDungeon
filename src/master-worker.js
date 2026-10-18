@@ -12,7 +12,7 @@ const player = {
   cellId: 'lobby',
   lx: CONFIG.ROOM_OUTER_W / 2,
   ly: CONFIG.ROOM_OUTER_H / 2,
-  vx: 0, vy: 0, speed: 6, radius: 15, facing: 'down'
+  vx: 0, vy: 0, speed: CONFIG.PLAYER_SPEED || 6, radius: 15, facing: 'down'
 };
 
 const keys = new Set();
@@ -281,11 +281,23 @@ setInterval(() => {
   const minY = 20 + player.radius;
   const maxY = CONFIG.ROOM_OUTER_H - 20 - player.radius;
 
-  // 1. 벽 충돌 처리 (이동 제한)
-  if (player.ly < minY) player.ly = minY;
-  if (player.ly > maxY) player.ly = maxY;
-  if (player.lx < minX) player.lx = minX;
-  if (player.lx > maxX) player.lx = maxX;
+  // 1. 벽 충돌 처리 (이동 제한 및 탄성 반동)
+  if (player.ly < minY) {
+    player.ly = minY;
+    if (CONFIG.ENABLE_WALL_BOUNCE) player.vy = -player.vy * 0.5;
+  }
+  if (player.ly > maxY) {
+    player.ly = maxY;
+    if (CONFIG.ENABLE_WALL_BOUNCE) player.vy = -player.vy * 0.5;
+  }
+  if (player.lx < minX) {
+    player.lx = minX;
+    if (CONFIG.ENABLE_WALL_BOUNCE) player.vx = -player.vx * 0.5;
+  }
+  if (player.lx > maxX) {
+    player.lx = maxX;
+    if (CONFIG.ENABLE_WALL_BOUNCE) player.vx = -player.vx * 0.5;
+  }
 
   // 플래그 충돌 판정
   if (player.cellId === flagCellId) {

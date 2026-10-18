@@ -8,4 +8,6 @@ export const CONFIG = {
   CHANNEL_NAME: "dungeon-v1",
   MAX_OPEN_ROOMS: 8, // 동시 개방 방 최대치 (메모리 보호)
   SINGLE_SCREEN_ONLY: true, // 메인 창이 위치한 단일 모니터만 맵으로 사용할지 여부
+  PLAYER_SPEED: 6, // 플레이어 기본 이동 속도 (px/tick)
+  ENABLE_WALL_BOUNCE: true, // 벽 충돌 시 탄성 반동 적용 여부
 };
