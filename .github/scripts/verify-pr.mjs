@@ -107,13 +107,7 @@ async function handlePullRequest(octokit, genAI, modelName) {
 
   console.log(`[Reverse-Verification] Analyzing PR #${pull_number} by @${author}`);
 
-  // 1-1. Commit Status를 'Pending'으로 설정하여 머지 제한
-  await setCommitStatus(octokit, owner, repo, headSha, {
-    state: 'pending',
-    description: '작성자의 코드 아키텍처 및 구현 의도 검증 답변을 대기 중입니다.',
-  });
-
-  // 1-2. PR Diff 가져오기
+  // 1-1. PR Diff 가져오기
   const diff = await fetchPrDiff(octokit, owner, repo, pull_number);
   if (!diff || diff.trim().length === 0) {
     console.log('[Reverse-Verification] Empty diff. Approving automatically.');
@@ -124,25 +118,26 @@ async function handlePullRequest(octokit, genAI, modelName) {
     return;
   }
 
-  // 1-3. Gemini에게 코드 이해도 확인 퀴즈 생성 요청
-  const prompt = `
-당신은 팀의 코드 품질과 히스토리 관리를 지원하는 시니어 동료 엔지니어입니다.
-우리의 목표는 "PR 작성자가 AI로 생성된 코드를 확인도 없이 무지성으로 올린 것인지, 아니면 최소한 코드를 읽고 어떤 흐름으로 구현되었는지 파악하고 있는지"를 점검하는 '코드 이해도 확인(Comprehension Check)'입니다.
+  // 1-2. Gemini에게 사소한 변경(Trivial) 판별 및 질문 생성 요청 (JSON 구조화 출력)
+  const triagePrompt = `
+당신은 PR의 변경 영향도를 엄밀히 평가하는 시니어 엔지니어입니다.
+아래 PR 정보와 git diff를 분석하여, 이 변경이 **"개발자의 코드 이해도 검증 퀴즈가 필요한 실질적 로직 변경(isTrivial: false)"**인지, 아니면 **"불필요한 질문 없이 즉시 자동 승인(Approve)해야 하는 사소한 변경(isTrivial: true)"**인지 판별하십시오.
 
-[중요 난이도 지침 - 절대 준수!]
-1. 대학원 면접 같은 학술 논문, 물리 엔진 수식, 거창한 아키텍처 이론(예: 터널링, 지터링, 복잡한 물리 시뮬레이션 이론) 질문은 **절대 금지**합니다.
-2. 질문 수준: PR 작성자가 자신이 올린 git diff를 **30초~1분만 읽어보면 누구나 자기 말로 1~2문장으로 쉽게 답할 수 있는 실용적이고 직관적인 질문 1~2개**만 출제하십시오.
-3. 권장 질문 유형:
-   - "이번에 추가/변경된 변수나 옵션이 어느 파일에 정의되었고, 실제 로직의 어느 부분에서 참조되나요?"
-   - "이 코드가 실행되면 실제 화면이나 사용자 입장에서 어떤 동작/변화가 나타나나요?"
-   - "이 기능의 기본값은 무엇이며, 이 동작을 끄거나 변경하려면 어느 파일의 어떤 설정을 수정해야 하나요?"
-4. 톤앤매너: 정중하고 격식 있는 엔지니어링 톤(경어체). 작성자를 당황시키거나 AI에게 다시 복붙하게 만들지 않는 실무적인 질문.
+[사소한 변경(isTrivial: true) 판단 기준 - 질문 생략 및 자동 승인 대상]
+1. 문서 및 마크다운: README.md, spec.md, docs, 주석(Comment), 오타(Typo) 수정
+2. 스타일 및 포맷팅: 단순 줄바꿈, 린트 정리, 공백 수정
+3. 사소한 설정/상수: 비즈니스 로직에 영향이 없는 1~3줄 내외의 단순한 값 변경
+4. 정적 에셋: 이미지, 텍스트 파일 등
 
-[서식 및 가독성 지침]
-1. 전체 응답을 백틱 코드 블록(\`\`\`)으로 감싸지 마십시오.
-2. 각 줄 시작 부분에 4칸 이상의 들여쓰기(공백)를 절대 넣지 마십시오. (GitHub 마크다운에서 코드 박스로 렌더링되어 가로 스크롤이 생기는 문제를 방지하기 위함)
-3. 가독성을 위해 각 질문은 '### 1. [핵심 주제]' 소제목을 달고 본문과 줄바꿈을 명확히 구분하십시오.
-4. 인사말, '코드 검증 질의서' 제목, 서론/결론 안내 문구는 시스템이 자동으로 붙이므로 출력하지 마시고, 오직 '### 1. [질문 제목]'부터 곧바로 출력하십시오.
+[검증 질의가 필요한 변경(isTrivial: false) 기준]
+1. 새로운 기능 추가 (Feature)
+2. 버그 수정 (Bug fix)
+3. 게임 엔진, 물리 연산, 상태 관리, 통신 프로토콜, 이벤트 핸들링 등 핵심 로직 수정
+
+[질문 출제 원칙 - isTrivial이 false일 때만 작성]
+1. 대학원 면접 같은 학술 논문, 물리 엔진 수식, 거창한 아키텍처 이론 질문은 절대 금지합니다.
+2. PR 작성자가 자신이 올린 diff를 30초~1분만 읽어보면 누구나 자기 말로 1~2문장으로 쉽게 답할 수 있는 실용적이고 직관적인 질문 1~2개만 출제하십시오.
+3. 오직 '### 1. [질문 제목]' 형태로 본문만 작성하십시오. (서론/인사말 금지)
 
 [PR 제목]
 ${pr.title}
@@ -154,16 +149,79 @@ ${pr.body || '(내용 없음)'}
 \`\`\`diff
 ${diff.slice(0, 15000)}
 \`\`\`
+
+반드시 아래 JSON 스키마 형식으로만 응답하십시오:
+{
+  "isTrivial": boolean,
+  "trivialReason": "사소한 변경으로 판단한 구체적인 이유 (isTrivial이 true일 때만 한국어 1문장)",
+  "questions": "isTrivial이 false일 때만 작성: 검증 질문 1~2개 (마크다운)"
+}
 `;
 
-  const response = await generateWithFallback(genAI, modelName, prompt, {
-    systemInstruction: '당신은 실무 중심의 코드 이해도를 친절하고 명확하게 확인하는 시니어 엔지니어입니다.',
+  const response = await generateWithFallback(genAI, modelName, triagePrompt, {
+    generationConfig: {
+      responseMimeType: 'application/json',
+      temperature: 0.1,
+    },
+    systemInstruction: '당신은 실무 중심의 코드 변경 영향도를 합리적으로 판단하는 시니어 엔지니어입니다. 반드시 지정된 JSON 형식으로만 응답하십시오.',
   });
 
-  const rawQuestion = response.response.text();
-  const questionContent = cleanMarkdownOutput(rawQuestion);
+  const responseText = response.response.text();
+  let triageResult;
+  try {
+    triageResult = JSON.parse(responseText);
+  } catch (err) {
+    throw new Error(`Failed to parse triage JSON: ${responseText}`);
+  }
 
-  // 1-4. PR에 봇 질문 댓글 등록
+  console.log(`[Reverse-Verification] Triage result - isTrivial: ${triageResult.isTrivial}`);
+
+  // 1-3. 사소한 변경인 경우: 즉시 자동 승인(Auto-Approve) 처리
+  if (triageResult.isTrivial) {
+    console.log(`[Reverse-Verification] Auto-approving trivial PR: ${triageResult.trivialReason}`);
+
+    const autoApproveComment = `${BOT_TAG}
+## ⚡ [단순 변경 자동 승인] 코드 검증 절차 생략
+
+본 PR의 변경 사항을 분석한 결과, **${triageResult.trivialReason || '사소한 변경(문서, 주석 또는 극소형 수정)'}**으로 확인되어 별도의 작성자 검증 질의 없이 **자동 승인(APPROVE)** 처리합니다. 🚀
+
+좋은 변경 감사합니다! 바로 머지하셔도 좋습니다.`;
+
+    await octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pull_number,
+      body: autoApproveComment,
+    });
+
+    await setCommitStatus(octokit, owner, repo, headSha, {
+      state: 'success',
+      description: `단순 변경 자동 승인: ${triageResult.trivialReason || '사소한 수정'}`,
+    });
+
+    try {
+      await octokit.rest.pulls.createReview({
+        owner,
+        repo,
+        pull_number,
+        event: 'APPROVE',
+        body: `LGTM. (Reverse-Verification: 사소한 변경으로 확인되어 자동 승인 처리 - ${triageResult.trivialReason || 'Trivial change'})`,
+      });
+      console.log(`[Reverse-Verification] Auto-APPROVE submitted on PR #${pull_number}`);
+    } catch (reviewErr) {
+      console.warn(`[Reverse-Verification] Review error: ${reviewErr.message}`);
+    }
+    return;
+  }
+
+  // 1-4. 실질적인 변경인 경우: Commit Status 'Pending' 설정 및 질문 등록
+  await setCommitStatus(octokit, owner, repo, headSha, {
+    state: 'pending',
+    description: '작성자의 코드 구현 의도 및 이해도 검증 답변을 대기 중입니다.',
+  });
+
+  const questionContent = cleanMarkdownOutput(triageResult.questions || '');
+
   const commentBody = `${BOT_TAG}
 ## 📋 [코드 확인 질의서] 구현 흐름 및 변경점 확인
 
