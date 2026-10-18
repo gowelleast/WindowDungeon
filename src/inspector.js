@@ -2,25 +2,22 @@ import { MSG } from './protocol.js';
 
 let logContainer;
 
+/** 인스펙터를 초기화하고, 정리(dispose) 함수를 반환합니다. */
 export function initInspector(channel) {
   logContainer = document.getElementById('inspector-log');
-  if (!logContainer) return;
+  if (!logContainer) return () => {};
 
   // 시스템 기본 정보를 출력
   appendLog('System', `Inspector initialized. Listening on channel: ${channel.bc.name}`, '#4ade80');
   
-  // 브로드캐스트 채널로 오가는 모든 통신을 후킹하여 로그로 출력
-  const originalOnMessage = channel.bc.onmessage;
-  channel.bc.onmessage = (e) => {
-    const data = e.data;
-    
+  // 브로드캐스트 채널로 수신되는 모든 통신을 로그로 출력
+  // (bc.onmessage를 래핑하면 재시작마다 래퍼가 중첩되어 로그가 중복되므로 onAny 구독 사용)
+  return channel.onAny((data) => {
     // 너무 자주 오는 PING/PONG/TICK은 제외 (또는 축소 표기)
-    if (data && data.type !== MSG.TICK && data.type !== MSG.PING && data.type !== MSG.PONG) {
+    if (data.type !== MSG.TICK && data.type !== MSG.PING && data.type !== MSG.PONG) {
       logPacket(data);
     }
-    
-    if (originalOnMessage) originalOnMessage(e);
-  };
+  });
 }
 
 function logPacket(data) {

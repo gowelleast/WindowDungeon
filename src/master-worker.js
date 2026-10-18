@@ -12,7 +12,9 @@ const player = {
   cellId: 'lobby',
   lx: CONFIG.ROOM_OUTER_W / 2,
   ly: CONFIG.ROOM_OUTER_H / 2,
-  vx: 0, vy: 0, speed: CONFIG.PLAYER_SPEED || 6, radius: 15, facing: 'down'
+  vx: 0, vy: 0, speed: CONFIG.PLAYER_SPEED || 6, radius: 15, facing: 'down',
+  // 벽 반동 넉백 속도. 입력 속도와 별도로 유지되며 매 tick 감쇠합니다.
+  kx: 0, ky: 0
 };
 
 const keys = new Set();
@@ -220,7 +222,8 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   }
   
   player.cellId = nextId;
-  
+  player.kx = 0;
+  player.ky = 0;
   const doorMargin = player.radius + 35;
   if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; }
   else if (data.dir === 'down') { player.ly = doorMargin; }
@@ -265,38 +268,76 @@ setInterval(() => {
     dx /= len; dy /= len;
   }
 
-  player.vx = dx * player.speed;
-  player.vy = dy * player.speed;
+  const inputVx = dx * player.speed;
+  const inputVy = dy * player.speed;
 
-  if (player.vx < 0) player.facing = 'left';
-  else if (player.vx > 0) player.facing = 'right';
-  else if (player.vy < 0) player.facing = 'up';
-  else if (player.vy > 0) player.facing = 'down';
+  if (inputVx < 0) player.facing = 'left';
+  else if (inputVx > 0) player.facing = 'right';
+  else if (inputVy < 0) player.facing = 'up';
+  else if (inputVy > 0) player.facing = 'down';
 
+  // 실제 이동 속도 = 입력 속도 + 넉백 속도
+  player.vx = inputVx + player.kx;
+  player.vy = inputVy + player.ky;
+
+  const prevLx = player.lx;
+  const prevLy = player.ly;
   player.lx += player.vx;
   player.ly += player.vy;
+
+  // 넉백 감쇠
+  const decay = CONFIG.WALL_BOUNCE_DECAY ?? 0.6;
+  player.kx *= decay;
+  player.ky *= decay;
+  if (Math.abs(player.kx) < 0.1) player.kx = 0;
+  if (Math.abs(player.ky) < 0.1) player.ky = 0;
 
   const minX = 20 + player.radius;
   const maxX = CONFIG.ROOM_OUTER_W - 20 - player.radius;
   const minY = 20 + player.radius;
   const maxY = CONFIG.ROOM_OUTER_H - 20 - player.radius;
 
-  // 1. 벽 충돌 처리 (이동 제한 및 탄성 반동)
+  const currentCell = cellMap.get(player.cellId);
+  const doorWidth = 80;
+  const cx = CONFIG.ROOM_OUTER_W / 2;
+  const cy = CONFIG.ROOM_OUTER_H / 2;
+
+  // 해당 방향 벽의 문 구멍 앞에 있는지 (문은 벽이 아니므로 반동하지 않음 → 문 프롬프트 유지)
+  const isAtDoorOpening = (dir) => {
+    if (!currentCell || !currentCell.doors.includes(dir)) return false;
+    if (dir === 'up' || dir === 'down') return Math.abs(player.lx - cx) < doorWidth / 2;
+    return Math.abs(player.ly - cy) < doorWidth / 2;
+  };
+
+  const bounceStrength = CONFIG.WALL_BOUNCE_STRENGTH ?? 2;
+  // 이번 tick에 새로 벽에 부딪혔을 때만 넉백 임펄스 부여 (벽에 붙어 있는 동안 연속 발동 방지)
+  // sign: 벽에서 멀어지는 방향 (+1 / -1)
+  const bounce = (axis, wasTouching, dir, impactSpeed, sign) => {
+    const k = axis === 'x' ? 'kx' : 'ky';
+    if (CONFIG.ENABLE_WALL_BOUNCE && !wasTouching && !isAtDoorOpening(dir)) {
+      player[k] = sign * Math.abs(impactSpeed) * bounceStrength;
+    } else if (Math.sign(player[k]) === -sign) {
+      // 벽 쪽으로 향하던 잔여 넉백은 제거
+      player[k] = 0;
+    }
+  };
+
+  // 1. 벽 충돌 처리 (이동 제한 및 넉백 반동)
   if (player.ly < minY) {
     player.ly = minY;
-    if (CONFIG.ENABLE_WALL_BOUNCE) player.vy = -player.vy * 0.5;
+    bounce('y', prevLy <= minY, 'up', player.vy, +1);
   }
   if (player.ly > maxY) {
     player.ly = maxY;
-    if (CONFIG.ENABLE_WALL_BOUNCE) player.vy = -player.vy * 0.5;
+    bounce('y', prevLy >= maxY, 'down', player.vy, -1);
   }
   if (player.lx < minX) {
     player.lx = minX;
-    if (CONFIG.ENABLE_WALL_BOUNCE) player.vx = -player.vx * 0.5;
+    bounce('x', prevLx <= minX, 'left', player.vx, +1);
   }
   if (player.lx > maxX) {
     player.lx = maxX;
-    if (CONFIG.ENABLE_WALL_BOUNCE) player.vx = -player.vx * 0.5;
+    bounce('x', prevLx >= maxX, 'right', player.vx, -1);
   }
 
   // 플래그 충돌 판정
@@ -313,10 +354,6 @@ setInterval(() => {
 
   // 2. 문 프롬프트 감지 (벽에 딱 붙지 않아도 10px 이내면 인식)
   let hitDoor = null;
-  const currentCell = cellMap.get(player.cellId);
-  const doorWidth = 80;
-  const cx = CONFIG.ROOM_OUTER_W / 2;
-  const cy = CONFIG.ROOM_OUTER_H / 2;
   const triggerMargin = 10;
 
   if (player.ly <= minY + triggerMargin) {
