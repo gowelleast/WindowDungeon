@@ -1,11 +1,23 @@
 import { CONFIG } from './config.js';
 
-const W = CONFIG.ROOM_OUTER_W;
-const H = CONFIG.ROOM_OUTER_H;
 const WALL = 20;
 const DOOR_W = 80;
-const CX = W / 2;
-const CY = H / 2;
+
+// 동적 캔버스 크기 대응 헬퍼
+function getDim(ctx) {
+  const W = ctx && ctx.canvas ? ctx.canvas.width : CONFIG.ROOM_OUTER_W;
+  const H = ctx && ctx.canvas ? ctx.canvas.height : CONFIG.ROOM_OUTER_H;
+  return { W, H, CX: W / 2, CY: H / 2 };
+}
+
+function getTorches(W, H) {
+  return [
+    { x: 100, y: WALL },
+    { x: W - 100, y: WALL },
+    { x: 100, y: H - WALL },
+    { x: W - 100, y: H - WALL }
+  ];
+}
 
 // 바닥 석재 타일 캐시용 패턴 (오프스크린 캔버스로 1회 생성)
 let floorPattern = null;
@@ -44,18 +56,11 @@ function getFloorPattern(ctx) {
   return floorPattern;
 }
 
-// 횃불 배치 좌표
-const TORCH_POSITIONS = [
-  { x: 100, y: WALL },
-  { x: W - 100, y: WALL },
-  { x: 100, y: H - WALL },
-  { x: W - 100, y: H - WALL }
-];
-
 /**
  * 방(Floor, Walls, Doors, Torches) 렌더링
  */
 export function drawRoom(ctx, roomData, activePrompt = null) {
+  const { W, H, CX, CY } = getDim(ctx);
   const now = Date.now();
 
   // 1. 바닥 타일 렌더링
@@ -81,7 +86,7 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
   }
 
   // 5. 벽면 횃불(Torches) 및 동적 불꽃 렌더링
-  TORCH_POSITIONS.forEach(pos => {
+  getTorches(W, H).forEach(pos => {
     drawTorch(ctx, pos.x, pos.y, now);
   });
 }
@@ -90,6 +95,8 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
  * 입체감 있는 석벽 테두리
  */
 function drawWalls(ctx) {
+  const { W, H } = getDim(ctx);
+
   // 벽 본체 (단단한 흑요석/다크 슬레이트 질감)
   ctx.fillStyle = '#232832';
   ctx.fillRect(0, 0, W, WALL);
@@ -129,6 +136,7 @@ function drawWalls(ctx) {
  * 룬 문자 포탈 스타일의 문 렌더링
  */
 function drawDoor(ctx, dir, isTarget, now) {
+  const { W, H, CX, CY } = getDim(ctx);
   ctx.save();
 
   let x = 0, y = 0, w = 0, h = 0;
@@ -243,7 +251,10 @@ function drawTorch(ctx, tx, ty, now) {
 /**
  * 🚩 황금 제단 및 부유 깃발 렌더링
  */
-export function drawFlag(ctx, cx = CX, cy = CY) {
+export function drawFlag(ctx, cx, cy) {
+  const dim = getDim(ctx);
+  const targetCx = cx !== undefined ? cx : dim.CX;
+  const targetCy = cy !== undefined ? cy : dim.CY;
   const now = Date.now();
   ctx.save();
 
@@ -252,23 +263,23 @@ export function drawFlag(ctx, cx = CX, cy = CY) {
   ctx.strokeStyle = `rgba(245, 158, 11, ${pulse * 0.5})`;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+  ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = `rgba(250, 204, 21, ${pulse * 0.3})`;
   ctx.beginPath();
-  ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+  ctx.arc(targetCx, targetCy, 26, 0, Math.PI * 2);
   ctx.stroke();
 
   // 2. 깃발 공중 부유 (Floating Bobbing)
   const hoverY = Math.sin(now / 220) * 7;
-  const flagY = cy + hoverY;
+  const flagY = targetCy + hoverY;
 
   // 바닥 그림자 (높이에 따라 크기 변화)
   const shadowRadius = Math.max(10, 22 - hoverY);
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
-  ctx.ellipse(cx, cy + 24, shadowRadius, shadowRadius * 0.45, 0, 0, Math.PI * 2);
+  ctx.ellipse(targetCx, targetCy + 24, shadowRadius, shadowRadius * 0.45, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // 3. 깃대 (Golden Staff)
@@ -276,21 +287,21 @@ export function drawFlag(ctx, cx = CX, cy = CY) {
   ctx.shadowBlur = 12;
 
   ctx.fillStyle = '#fbbf24';
-  ctx.fillRect(cx - 2, flagY - 28, 4, 48);
+  ctx.fillRect(targetCx - 2, flagY - 28, 4, 48);
 
   // 깃대 상단 황금 보주
   ctx.fillStyle = '#fef08a';
   ctx.beginPath();
-  ctx.arc(cx, flagY - 30, 5, 0, Math.PI * 2);
+  ctx.arc(targetCx, flagY - 30, 5, 0, Math.PI * 2);
   ctx.fill();
 
   // 4. 휘날리는 붉은 비단 깃발 (Crimson Banner)
   const wave = Math.sin(now / 160) * 4;
   ctx.fillStyle = '#ef4444';
   ctx.beginPath();
-  ctx.moveTo(cx + 2, flagY - 28);
-  ctx.lineTo(cx + 34 + wave, flagY - 18);
-  ctx.lineTo(cx + 2, flagY - 8);
+  ctx.moveTo(targetCx + 2, flagY - 28);
+  ctx.lineTo(targetCx + 34 + wave, flagY - 18);
+  ctx.lineTo(targetCx + 2, flagY - 8);
   ctx.closePath();
   ctx.fill();
 
@@ -408,6 +419,7 @@ function drawLanternBeam(ctx, lx, ly, facing) {
  * 방 전체의 던전 분위기 조명 (Vignette & Fog of War)
  */
 export function drawDungeonLighting(ctx, playerState = null) {
+  const { W, H } = getDim(ctx);
   ctx.save();
   // 플레이어가 현재 방에 있는 경우
   if (playerState) {
@@ -431,6 +443,7 @@ export function drawDungeonLighting(ctx, playerState = null) {
  * 판타지 HUD 스타일의 문 열기 안내 프롬프트
  */
 export function drawPrompt(ctx, promptData) {
+  const { CX, CY } = getDim(ctx);
   ctx.save();
 
   const boxW = 140;

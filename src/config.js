@@ -13,3 +13,23 @@ export const CONFIG = {
   WALL_BOUNCE_STRENGTH: 2, // 충돌 순간 넉백 세기 (충돌 속도 대비 배수)
   WALL_BOUNCE_DECAY: 0.6, // 넉백 속도의 tick당 감쇠율 (0~1, 작을수록 빨리 멈춤)
 };
+
+/**
+ * 화면 해상도에 맞춰 여백 없이 꽉 차도록 방 크기(width, height)를 동적으로 계산합니다.
+ * @param {number} availWidth 화면 가로 해상도
+ * @param {number} availHeight 화면 세로 해상도
+ * @param {number} minWidth 방의 최소 허용 너비 (기본 400px)
+ */
+export function computeDynamicRoomSize(availWidth, availHeight, minWidth = 400) {
+  let cols = Math.round(availWidth / 480);
+  if (cols <= 0 || availWidth / cols < minWidth) {
+    cols = Math.max(1, Math.floor(availWidth / minWidth));
+  }
+  const roomW = Math.floor(availWidth / cols);
+
+  let rows = Math.round(availHeight / 400);
+  rows = Math.max(1, rows);
+  const roomH = Math.max(300, Math.floor(availHeight / rows));
+
+  return { roomW, roomH, cols, rows };
+}

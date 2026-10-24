@@ -153,6 +153,14 @@ let currentScreenLabel = null;
 channel.on(MSG.SCREENS_UPDATE, (data) => {
   screens = data.screens;
   currentScreenLabel = data.currentScreenLabel;
+  if (data.roomW && data.roomH) {
+    CONFIG.ROOM_OUTER_W = data.roomW;
+    CONFIG.ROOM_OUTER_H = data.roomH;
+    if (cellMap.size === 0) {
+      player.lx = CONFIG.ROOM_OUTER_W / 2;
+      player.ly = CONFIG.ROOM_OUTER_H / 2;
+    }
+  }
   if (!flagCellId) {
     const lobby = Array.from(cellMap.values()).find(c => c.gx === 0 && c.gy === 0);
     if (lobby) generateFlag(lobby.screenLabel, 0, 0);
@@ -347,7 +355,30 @@ setInterval(() => {
     const dist = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
     if (dist < player.radius + 20) {
       isVictory = true;
-      channel.send(MSG.VICTORY, { winnerWinId: cellMap.get(player.cellId).winId });
+
+      // 전체 활성 화면 및 방들의 전역 절대 좌표계 범위 계산
+      const minTop = screens.length > 0 ? Math.min(...screens.map(s => s.availTop)) : 0;
+      const maxBottom = screens.length > 0 ? Math.max(...screens.map(s => s.availTop + s.availHeight)) : CONFIG.ROOM_OUTER_H;
+      const minLeft = screens.length > 0 ? Math.min(...screens.map(s => s.availLeft)) : 0;
+      const maxRight = screens.length > 0 ? Math.max(...screens.map(s => s.availLeft + s.availWidth)) : CONFIG.ROOM_OUTER_W;
+
+      const cellsList = Array.from(cellMap.values());
+      const roomsMinTop = cellsList.length > 0 ? Math.min(...cellsList.map(c => c.rect.top)) : minTop;
+      const roomsMaxBottom = cellsList.length > 0 ? Math.max(...cellsList.map(c => c.rect.top + c.rect.height)) : maxBottom;
+
+      channel.send(MSG.VICTORY, {
+        winnerWinId: cellMap.get(player.cellId).winId,
+        globalBounds: {
+          minTop,
+          maxBottom,
+          minLeft,
+          maxRight,
+          roomsMinTop,
+          roomsMaxBottom,
+          totalHeight: maxBottom - minTop
+        },
+        startTime: Date.now()
+      });
       return;
     }
   }

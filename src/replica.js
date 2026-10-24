@@ -2,15 +2,21 @@ import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
 import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
 import { CONFIG } from './config.js';
+import { MultiScreenConfetti } from './confetti.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
+const hashParams = new URLSearchParams(window.location.hash.substring(1));
 let winId = window.name;
 if (!winId || winId === '') {
-  // 수동 접속 시 redirect로 ? 쿼리가 유실되는 것을 막기 위해 # 해시 사용
-  const hashParams = new URLSearchParams(window.location.hash.substring(1));
   winId = hashParams.get('winId');
 }
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
+
+// 해상도에 맞춘 동적 방 크기(w, h) 적용
+const dynamicW = parseInt(hashParams.get('w'), 10) || CONFIG.ROOM_OUTER_W;
+const dynamicH = parseInt(hashParams.get('h'), 10) || CONFIG.ROOM_OUTER_H;
+CONFIG.ROOM_OUTER_W = dynamicW;
+CONFIG.ROOM_OUTER_H = dynamicH;
 
 window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
@@ -18,13 +24,15 @@ document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${win
 const channel = new DungeonChannel(winId);
 
 const canvas = document.getElementById('game-canvas');
-canvas.width = CONFIG.ROOM_OUTER_W;
-canvas.height = CONFIG.ROOM_OUTER_H;
+canvas.width = dynamicW;
+canvas.height = dynamicH;
 const ctx = canvas.getContext('2d');
 
 let myCellId = null;
 let roomData = null;
 let currentPrompt = null;
+let isVictory = false;
+let confetti = null;
 
 // 1. 인사 (핸드쉐이크)
 // Worker가 완전히 초기화되기 전에 팝업이 뜰 수 있으므로, 응답을 받을 때까지 주기적으로 보냅니다.
@@ -60,7 +68,7 @@ channel.on(MSG.DOOR_PROMPT, (data) => {
 });
 
 channel.on(MSG.TICK, (data) => {
-  if (!myCellId) return;
+  if (!myCellId || isVictory) return;
 
   requestAnimationFrame(() => {
     const isPlayerHere = (data.activeCellId === myCellId);
@@ -89,11 +97,20 @@ const keys = new Set();
 window.addEventListener('keydown', (e) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
 
+  // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
+  if (e.key === ' ' && isVictory) {
+    channel.send(MSG.CLOSE_ALL);
+    window.close();
+    return;
+  }
+
   if (e.key === ' ' && currentPrompt) {
     if (currentPrompt.willOpenNew) {
       const { targetWinId, rect } = currentPrompt;
-      const features = `popup=yes,resizable=no,width=${CONFIG.ROOM_OUTER_W},height=${CONFIG.ROOM_OUTER_H},left=${rect.left},top=${rect.top}`;
-      window.open(`./room.html#winId=${targetWinId}`, targetWinId, features);
+      const w = rect.width || dynamicW;
+      const h = rect.height || dynamicH;
+      const features = `popup=yes,resizable=no,width=${w},height=${h},left=${rect.left},top=${rect.top}`;
+      window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}`, targetWinId, features);
     } else {
       const win = window.open('', currentPrompt.targetWinId);
       if (win) win.focus();
@@ -128,17 +145,54 @@ window.addEventListener('beforeunload', () => {
   channel.close();
 });
 
-channel.on(MSG.VICTORY, () => {
+channel.on(MSG.VICTORY, (data) => {
+  isVictory = true;
   document.body.classList.add('victory-flash');
   
-  const modal = document.createElement('div');
-  modal.className = 'victory-modal';
-  modal.innerHTML = `
-    <div class="victory-icon">🏆</div>
-    <h1 class="victory-modal-title">VICTORY</h1>
-    <div class="victory-modal-instruction">Press [Space] to close all windows</div>
-  `;
-  document.body.appendChild(modal);
+  if (!document.querySelector('.victory-modal')) {
+    const modal = document.createElement('div');
+    modal.className = 'victory-modal';
+    modal.innerHTML = `
+      <div class="victory-icon">🏆</div>
+      <h1 class="victory-modal-title">VICTORY</h1>
+      <div class="victory-modal-instruction">Press [Space] to close all windows</div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  // Window Management API 기반 연속 낙하 꽃가루 시뮬레이터 초기화
+  const bounds = (data && data.globalBounds) ? data.globalBounds : {
+    minTop: 0,
+    maxBottom: window.screen.availHeight,
+    minLeft: 0,
+    maxRight: window.screen.availWidth,
+    totalHeight: window.screen.availHeight
+  };
+
+  confetti = new MultiScreenConfetti(bounds);
+
+  const myRect = (roomData && roomData.rect) ? roomData.rect : {
+    left: window.screenX,
+    top: window.screenY,
+    width: canvas.width,
+    height: canvas.height
+  };
+
+  // 승리 화면 및 연속 꽃가루 애니메이션 루프
+  const animateVictory = () => {
+    if (!isVictory) return;
+
+    // 1. 방 바닥 및 오브젝트 기본 렌더링 유지
+    drawRoom(ctx, roomData, null);
+    if (roomData && roomData.hasFlag) drawFlag(ctx);
+    drawDungeonLighting(ctx, null);
+
+    // 2. 전역 좌표 기반 연속 낙하 꽃가루 렌더링
+    confetti.render(ctx, myRect);
+
+    requestAnimationFrame(animateVictory);
+  };
+  requestAnimationFrame(animateVictory);
 });
 
 channel.on(MSG.CLOSE_ALL, () => {
