@@ -1,7 +1,7 @@
 import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
-import { initMinimap } from './minimap.js';
+import { initMinimap, openPipMinimap } from './minimap.js';
 import { initInspector } from './inspector.js';
 
 let worker;
@@ -31,6 +31,15 @@ window.addEventListener('beforeunload', (e) => {
 
 document.getElementById('btn-start').addEventListener('click', async () => {
   disposeSession();
+
+  // 게임 시작 시 Document PiP 미니맵을 기본값으로 자동 실행 (유저 클릭 제스처 활용)
+  if ('documentPictureInPicture' in window) {
+    try {
+      await openPipMinimap();
+    } catch (e) {
+      console.warn('[Launcher] PiP 자동 실행 스킵/실패:', e);
+    }
+  }
 
   let screens = [];
   let currentScreenLabel = '';

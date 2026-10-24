@@ -95,7 +95,8 @@ channel.on(MSG.TICK, (data) => {
 // 3. 키보드 입력 및 동기적 window.open 실행
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'm', 'M'].includes(e.key)) e.preventDefault();
+  const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) e.preventDefault();
 
   // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
   if (e.key === ' ' && isVictory) {
@@ -120,15 +121,18 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (!keys.has(e.key)) {
-    keys.add(e.key);
+  const keyName = isM ? 'm' : e.key;
+  if (!keys.has(keyName)) {
+    keys.add(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });
   }
 });
 
 window.addEventListener('keyup', (e) => {
-  if (keys.has(e.key)) {
-    keys.delete(e.key);
+  const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
+  const keyName = isM ? 'm' : e.key;
+  if (keys.has(keyName)) {
+    keys.delete(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });
   }
 });
