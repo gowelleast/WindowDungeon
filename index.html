@@ -45,9 +45,16 @@
         <div class="dashboard-card">
           <div class="card-header">
             <h3 class="card-title">🗺️ 공간 미니맵</h3>
-            <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">Monitor Grid Space</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <button id="btn-pip" class="btn-pip" title="항상 위에 표시되는 플로팅 미니맵 띄우기">
+                📌 Always-on-Top (PiP)
+              </button>
+              <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">Monitor Grid</span>
+            </div>
           </div>
-          <canvas id="minimap-canvas" width="600" height="400"></canvas>
+          <div id="minimap-container">
+            <canvas id="minimap-canvas" width="600" height="400"></canvas>
+          </div>
           <div id="sync-metrics">
             동기화 지표 대기 중...
           </div>
