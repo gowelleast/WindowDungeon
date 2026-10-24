@@ -70,8 +70,12 @@ channel.on(MSG.DOOR_PROMPT, (data) => {
 channel.on(MSG.TICK, (data) => {
   if (!myCellId || isVictory) return;
 
+  const isPlayerHere = (data.activeCellId === myCellId);
+  if (!isPlayerHere && keys.size > 0) {
+    keys.clear();
+  }
+
   requestAnimationFrame(() => {
-    const isPlayerHere = (data.activeCellId === myCellId);
     
     // 1. 방 바닥, 벽, 문 렌더링
     drawRoom(ctx, roomData, isPlayerHere ? currentPrompt : null);
@@ -106,6 +110,10 @@ window.addEventListener('keydown', (e) => {
   }
 
   if (e.key === ' ' && currentPrompt) {
+    // 문 통과 순간 이전 방에서 누르고 있던 모든 이동 키 즉시 해제
+    keys.clear();
+    channel.send(MSG.INPUT, { keys: [] });
+
     if (currentPrompt.willOpenNew) {
       const { targetWinId, rect } = currentPrompt;
       const w = rect.width || dynamicW;
@@ -137,11 +145,18 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
-window.addEventListener('blur', () => {
+// 창 포커스 전환, 블러, 탭 가시성 전환 시 잔여 키 일괄 소거
+const clearLocalKeys = () => {
   if (keys.size > 0) {
     keys.clear();
     channel.send(MSG.INPUT, { keys: [] });
   }
+};
+
+window.addEventListener('blur', clearLocalKeys);
+window.addEventListener('focus', clearLocalKeys);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearLocalKeys();
 });
 
 window.addEventListener('beforeunload', () => {

@@ -230,13 +230,16 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   }
   
   player.cellId = nextId;
+  keys.clear();
+  player.vx = 0;
+  player.vy = 0;
   player.kx = 0;
   player.ky = 0;
   const doorMargin = player.radius + 35;
-  if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; }
-  else if (data.dir === 'down') { player.ly = doorMargin; }
-  else if (data.dir === 'left') { player.lx = CONFIG.ROOM_OUTER_W - doorMargin; }
-  else if (data.dir === 'right') { player.lx = doorMargin; }
+  if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; player.facing = 'up'; }
+  else if (data.dir === 'down') { player.ly = doorMargin; player.facing = 'down'; }
+  else if (data.dir === 'left') { player.lx = CONFIG.ROOM_OUTER_W - doorMargin; player.facing = 'left'; }
+  else if (data.dir === 'right') { player.lx = doorMargin; player.facing = 'right'; }
 });
 
 channel.on(MSG.INPUT, (data) => {
