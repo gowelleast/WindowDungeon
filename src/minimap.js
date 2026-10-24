@@ -12,7 +12,7 @@ let intervalId = null;
 
 // Document Picture-in-Picture 상태
 let pipWindow = null;
-let isPipExpanded = true; // 기본값: 레이더 활성화 상태
+let isPipExpanded = false; // 기본값: 축소(아이콘/뱃지) 모드로 시작하여 M 입력 시 즉시 확장
 let mKeyPressed = false;
 
 /** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다. */
@@ -26,7 +26,7 @@ export function initMinimap(channel) {
   player = null;
   msgRate = 0;
   pingRtt = 0;
-  isPipExpanded = true;
+  isPipExpanded = false;
   
   if (intervalId) clearInterval(intervalId);
 
@@ -121,11 +121,11 @@ async function togglePipWindow(forceOpen = false) {
   }
 
   try {
-    // 적절하고 쾌적한 전술 플로팅 레이더 크기 (280x200)로 생성
-    isPipExpanded = true;
+    // 초기 생성 시 방해되지 않는 컴팩트한 축소 뱃지 크기 (250x68)로 시작
+    isPipExpanded = false;
     pipWindow = await window.documentPictureInPicture.requestWindow({
-      width: 280,
-      height: 200,
+      width: 250,
+      height: 68,
     });
 
     const btnPip = document.getElementById('btn-pip');
@@ -175,16 +175,16 @@ function renderPipDOM() {
       <!-- 1. 축소 모드: 방해되지 않는 작은 플로팅 배지 -->
       <div id="pip-collapsed-view" class="pip-collapsed-view" style="${isPipExpanded ? 'display:none;' : 'display:flex;'}">
         <span class="pip-icon-large">🗺️</span>
-        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M / ㅡ</span></span>
+        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M</span></span>
       </div>
 
       <!-- 2. 확장 모드: 실시간 전술 레이더 캔버스 -->
       <div id="pip-expanded-view" class="pip-expanded-view" style="${isPipExpanded ? 'display:flex;' : 'display:none;'}">
         <div id="pip-topbar" class="pip-topbar">
-          <span class="pip-topbar-title">🗺️ 공간 레이더</span>
+          <span class="pip-topbar-title">🗺️ 공간 미니맵</span>
           <div style="display:flex; align-items:center; gap:6px;">
-            <button id="btn-pip-size-toggle" class="btn-pip" style="padding: 1px 6px; font-size: 10px;">⤡ 축소</button>
-            <span class="pip-kbd">M / ㅡ</span>
+            <button id="btn-pip-size-toggle" class="btn-pip" style="padding: 1px 6px; font-size: 10px;">${isPipExpanded ? '⤡ 축소' : '⤢ 확대'}</button>
+            <span class="pip-kbd">M</span>
           </div>
         </div>
         <div id="pip-canvas-area" class="pip-canvas-area"></div>
@@ -221,7 +221,7 @@ function renderPipDOM() {
     btnSizeToggle.addEventListener('click', (e) => {
       e.stopPropagation();
       try {
-        if (pipWindow.innerHeight > 100) {
+        if (isPipExpanded) {
           pipWindow.resizeTo(250, 68);
           togglePipMode(false);
         } else {
@@ -252,10 +252,14 @@ function togglePipMode(forceState = null) {
 
   const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
   const expandedEl = pipWindow.document.getElementById('pip-expanded-view');
+  const btnSizeToggle = pipWindow.document.getElementById('btn-pip-size-toggle');
 
   if (collapsedEl && expandedEl) {
     collapsedEl.style.display = isPipExpanded ? 'none' : 'flex';
     expandedEl.style.display = isPipExpanded ? 'flex' : 'none';
+  }
+  if (btnSizeToggle) {
+    btnSizeToggle.textContent = isPipExpanded ? '⤡ 축소' : '⤢ 확대';
   }
 
   syncCanvasLocation();
@@ -320,7 +324,7 @@ function updateMetrics() {
   if (pipWindow && !pipWindow.closed) {
     const pipBadgeText = pipWindow.document.getElementById('pip-badge-text');
     if (pipBadgeText) {
-      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M / ㅡ</span>`;
+      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M</span>`;
     }
     const pipBottomMetrics = pipWindow.document.getElementById('pip-bottom-metrics');
     if (pipBottomMetrics) {
