@@ -99,7 +99,7 @@ channel.on(MSG.TICK, (data) => {
 // 3. 키보드 입력 및 동기적 window.open 실행
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'm', 'M'].includes(e.key)) e.preventDefault();
 
   // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
   if (e.key === ' ' && isVictory) {

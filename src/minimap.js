@@ -10,6 +10,11 @@ let pingRtt = 0;
 let msgRate = 0;
 let intervalId = null;
 
+// Document Picture-in-Picture 관련 상태
+let pipWindow = null;
+let isPipExpanded = false; // false: 축소(아이콘/뱃지) 모드, true: 확장(미니맵 캔버스) 모드
+let mKeyPressed = false;
+
 /** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다. */
 export function initMinimap(channel) {
   canvas = document.getElementById('minimap-canvas');
@@ -21,6 +26,7 @@ export function initMinimap(channel) {
   player = null;
   msgRate = 0;
   pingRtt = 0;
+  isPipExpanded = false;
   
   if (intervalId) clearInterval(intervalId);
 
@@ -47,7 +53,35 @@ export function initMinimap(channel) {
       player = data;
       requestAnimationFrame(drawMinimap);
     }),
+
+    // 모든 방에서 발생하는 키 입력을 통해 M 키 토글 감지
+    channel.on(MSG.INPUT, (data) => {
+      const hasM = data.keys && data.keys.some(k => k.toLowerCase() === 'm');
+      if (hasM && !mKeyPressed) {
+        mKeyPressed = true;
+        togglePipExpansion();
+      } else if (!hasM) {
+        mKeyPressed = false;
+      }
+    }),
   ];
+
+  // 런처 화면 내에서 직접 M 키 입력 시에도 토글
+  const onLauncherKey = (e) => {
+    if (e.key.toLowerCase() === 'm' && !e.repeat) {
+      togglePipExpansion();
+    }
+  };
+  window.addEventListener('keydown', onLauncherKey);
+  unsubscribers.push(() => window.removeEventListener('keydown', onLauncherKey));
+
+  // PiP 열기/닫기 버튼 바인딩
+  const btnPip = document.getElementById('btn-pip');
+  if (btnPip) {
+    const onPipClick = () => togglePipWindow();
+    btnPip.addEventListener('click', onPipClick);
+    unsubscribers.push(() => btnPip.removeEventListener('click', onPipClick));
+  }
 
   return () => {
     unsubscribers.forEach((off) => off());
@@ -55,15 +89,207 @@ export function initMinimap(channel) {
       clearInterval(intervalId);
       intervalId = null;
     }
+    if (pipWindow && !pipWindow.closed) {
+      pipWindow.close();
+      pipWindow = null;
+    }
   };
 }
 
+/** Document Picture-in-Picture 윈도우 생성/해제 토글 */
+async function togglePipWindow() {
+  if (!('documentPictureInPicture' in window)) {
+    alert('현재 브라우저에서는 Document Picture-in-Picture API를 지원하지 않습니다.\n최신 Chromium 브라우저(Chrome/Edge 111 이상)에서 사용 가능합니다.');
+    return;
+  }
+
+  // 이미 열려 있으면 닫기
+  if (pipWindow && !pipWindow.closed) {
+    pipWindow.close();
+    return;
+  }
+
+  try {
+    // 1. 컴팩트한 초기 크기로 PiP 창 열기
+    isPipExpanded = false;
+    pipWindow = await window.documentPictureInPicture.requestWindow({
+      width: 250,
+      height: 72,
+    });
+
+    const btnPip = document.getElementById('btn-pip');
+    if (btnPip) {
+      btnPip.classList.add('active');
+      btnPip.innerHTML = '📌 PiP 활성화됨 (M)';
+    }
+
+    // 2. 부모 창의 스타일시트 복사
+    copyStylesheetsToPip(pipWindow);
+
+    // 3. PiP 윈도우 DOM 렌더링
+    pipWindow.document.body.className = 'pip-body';
+    renderPipDOM();
+
+    // 4. 윈도우 종료 시 원래 런처 위치로 캔버스 복귀
+    pipWindow.addEventListener('pagehide', () => {
+      restoreCanvasToLauncher();
+      pipWindow = null;
+      isPipExpanded = false;
+      if (btnPip) {
+        btnPip.classList.remove('active');
+        btnPip.innerHTML = '📌 Always-on-Top (PiP)';
+      }
+    });
+
+    // 5. PiP 윈도우 포커스 상태에서의 M 키 감지
+    pipWindow.addEventListener('keydown', (e) => {
+      if (e.key.toLowerCase() === 'm' && !e.repeat) {
+        e.preventDefault();
+        togglePipExpansion();
+      }
+    });
+
+  } catch (err) {
+    console.error('[Minimap] Document PiP 열기 실패:', err);
+  }
+}
+
+/** PiP 내부 DOM 구조 렌더링 */
+function renderPipDOM() {
+  if (!pipWindow || pipWindow.closed) return;
+
+  pipWindow.document.body.innerHTML = `
+    <div class="pip-wrapper">
+      <!-- 1. 축소 모드 (지도 이모지 뱃지) -->
+      <div id="pip-collapsed-view" class="pip-collapsed-view" style="${isPipExpanded ? 'display:none;' : 'display:flex;'}">
+        <span class="pip-icon-large">🗺️</span>
+        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M</span></span>
+      </div>
+
+      <!-- 2. 확장 모드 (실시간 레이더 캔버스) -->
+      <div id="pip-expanded-view" class="pip-expanded-view" style="${isPipExpanded ? 'display:flex;' : 'display:none;'}">
+        <div id="pip-topbar" class="pip-topbar">
+          <span class="pip-topbar-title">🗺️ 공간 미니맵</span>
+          <span class="pip-kbd">M 접기</span>
+        </div>
+        <div id="pip-canvas-area" class="pip-canvas-area"></div>
+        <div id="pip-bottom-metrics" class="pip-bottom-metrics">
+          <span>방: ${cellMap.size}개</span>
+          <span>RTT: ${pingRtt}ms</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // 축소 뷰 클릭 시 펼침
+  const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
+  if (collapsedEl) {
+    collapsedEl.addEventListener('click', () => togglePipExpansion(true));
+  }
+
+  // 상단 바 클릭 시 접음
+  const topbarEl = pipWindow.document.getElementById('pip-topbar');
+  if (topbarEl) {
+    topbarEl.addEventListener('click', () => togglePipExpansion(false));
+  }
+
+  syncCanvasLocation();
+}
+
+/** PiP 창의 축소(이모지) ↔ 확장(미니맵) 상태 토글 */
+function togglePipExpansion(forceState = null) {
+  if (!pipWindow || pipWindow.closed) return;
+
+  isPipExpanded = (forceState !== null) ? forceState : !isPipExpanded;
+
+  // 창 크기 조절 (축소: 250x72, 확장: 360x260)
+  try {
+    if (isPipExpanded) {
+      pipWindow.resizeTo(360, 260);
+    } else {
+      pipWindow.resizeTo(250, 72);
+    }
+  } catch (e) {
+    // 브라우저 정책 클램프 무시
+  }
+
+  const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
+  const expandedEl = pipWindow.document.getElementById('pip-expanded-view');
+
+  if (collapsedEl && expandedEl) {
+    collapsedEl.style.display = isPipExpanded ? 'none' : 'flex';
+    expandedEl.style.display = isPipExpanded ? 'flex' : 'none';
+  }
+
+  syncCanvasLocation();
+}
+
+/** 캔버스를 현재 상태에 맞게 PiP 창 또는 런처로 이동 */
+function syncCanvasLocation() {
+  if (!canvas) return;
+
+  if (pipWindow && !pipWindow.closed) {
+    if (isPipExpanded) {
+      const area = pipWindow.document.getElementById('pip-canvas-area');
+      if (area && !area.contains(canvas)) {
+        area.appendChild(canvas);
+      }
+    } else {
+      restoreCanvasToLauncher();
+    }
+  } else {
+    restoreCanvasToLauncher();
+  }
+
+  requestAnimationFrame(drawMinimap);
+}
+
+/** 캔버스를 원래 런처 대시보드 위치로 복원 */
+function restoreCanvasToLauncher() {
+  const container = document.getElementById('minimap-container');
+  if (container && canvas && !container.contains(canvas)) {
+    container.appendChild(canvas);
+  }
+}
+
+/** 부모 창의 스타일시트를 PiP 윈도우에 전달 */
+function copyStylesheetsToPip(targetPipWindow) {
+  [...document.styleSheets].forEach((styleSheet) => {
+    try {
+      const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
+      const style = targetPipWindow.document.createElement('style');
+      style.textContent = cssRules;
+      targetPipWindow.document.head.appendChild(style);
+    } catch (e) {
+      const link = targetPipWindow.document.createElement('link');
+      link.rel = 'stylesheet';
+      link.type = styleSheet.type || 'text/css';
+      link.href = styleSheet.href;
+      targetPipWindow.document.head.appendChild(link);
+    }
+  });
+}
+
 function updateMetrics() {
-  const el = document.getElementById('sync-metrics');
-  if (!el) return;
-  
   const connectedRooms = cellMap.size;
-  el.innerHTML = `<span>📡 <strong>개척된 방:</strong> ${connectedRooms}개</span> &nbsp;|&nbsp; <span>⚡ <strong>RTT:</strong> ${pingRtt}ms</span> &nbsp;|&nbsp; <span>📊 <strong>Msg/sec:</strong> ${msgRate}</span>`;
+
+  // 1. 런처 화면 지표 갱신
+  const el = document.getElementById('sync-metrics');
+  if (el) {
+    el.innerHTML = `<span>📡 <strong>개척된 방:</strong> ${connectedRooms}개</span> &nbsp;|&nbsp; <span>⚡ <strong>RTT:</strong> ${pingRtt}ms</span> &nbsp;|&nbsp; <span>📊 <strong>Msg/sec:</strong> ${msgRate}</span>`;
+  }
+
+  // 2. PiP 윈도우 활성화 시 지표 갱신
+  if (pipWindow && !pipWindow.closed) {
+    const pipBadgeText = pipWindow.document.getElementById('pip-badge-text');
+    if (pipBadgeText) {
+      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M</span>`;
+    }
+    const pipBottomMetrics = pipWindow.document.getElementById('pip-bottom-metrics');
+    if (pipBottomMetrics) {
+      pipBottomMetrics.innerHTML = `<span>방: ${connectedRooms}개 | RTT: ${pingRtt}ms</span><span>Msg: ${msgRate}/s</span>`;
+    }
+  }
 }
 
 function drawMinimap() {
