@@ -91,7 +91,11 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   // 동기적 유저 제스처 내에서 첫 번째 팝업(로비 방) 열기
   // popup=yes 파라미터를 명시하여 탭이 아닌 무조건 팝업으로 열리게 강제합니다.
   const features = `popup=yes,resizable=no,width=${CONFIG.ROOM_OUTER_W},height=${CONFIG.ROOM_OUTER_H},left=${left},top=${top}`;
-  window.open(`./room.html#winId=lobby`, 'lobby', features);
+  const popup = window.open(`./room.html#winId=lobby`, 'lobby', features);
+  if (!popup) {
+    alert('브라우저에서 팝업이 차단되었습니다. 주소창 우측에서 팝업을 허용해주세요!');
+    return;
+  }
 
   document.getElementById('start-screen').style.display = 'none';
   document.getElementById('status').style.display = 'block';

@@ -1,6 +1,6 @@
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
-import { drawRoom, drawPlayer, drawPrompt } from './render.js';
+import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
 import { CONFIG } from './config.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
@@ -13,7 +13,7 @@ if (!winId || winId === '') {
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
 
 window.name = winId;
-document.title = (winId === 'lobby') ? 'Window Dungeon - Lobby' : `Room: ${winId}`;
+document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
 
 const channel = new DungeonChannel(winId);
 
@@ -41,7 +41,11 @@ channel.on(MSG.ASSIGN, (data) => {
     }
     myCellId = data.id;
     roomData = data;
-    requestAnimationFrame(() => drawRoom(ctx, roomData));
+    requestAnimationFrame(() => {
+      drawRoom(ctx, roomData);
+      if (roomData.hasFlag) drawFlag(ctx);
+      drawDungeonLighting(ctx, null);
+    });
   }
 });
 
@@ -59,18 +63,23 @@ channel.on(MSG.TICK, (data) => {
   if (!myCellId) return;
 
   requestAnimationFrame(() => {
-    drawRoom(ctx, roomData);
+    const isPlayerHere = (data.activeCellId === myCellId);
     
+    // 1. 방 바닥, 벽, 문 렌더링
+    drawRoom(ctx, roomData, isPlayerHere ? currentPrompt : null);
+    
+    // 2. 깃발 (황금 제단) 렌더링
     if (roomData && roomData.hasFlag) {
-      ctx.font = '60px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('🚩', CONFIG.ROOM_OUTER_W / 2, CONFIG.ROOM_OUTER_H / 2);
+      drawFlag(ctx);
     }
 
-    if (data.activeCellId === myCellId) {
+    // 3. 플레이어 및 조명 렌더링
+    if (isPlayerHere) {
       drawPlayer(ctx, data);
+      drawDungeonLighting(ctx, data);
       if (currentPrompt) drawPrompt(ctx, currentPrompt);
+    } else {
+      drawDungeonLighting(ctx, null);
     }
   });
 });
@@ -121,17 +130,15 @@ window.addEventListener('beforeunload', () => {
 
 channel.on(MSG.VICTORY, (data) => {
   document.body.classList.add('victory-flash');
-  const h1 = document.createElement('h1');
-  h1.innerHTML = `🎉 VICTORY! 🎉<br><span style="font-size: 20px">Winner: ${data.winnerWinId}</span><br><br><span style="font-size: 14px; font-weight: normal; color: #ccc;">Press Space to close all rooms</span>`;
-  h1.style.position = 'absolute';
-  h1.style.top = '50%';
-  h1.style.left = '50%';
-  h1.style.transform = 'translate(-50%, -50%)';
-  h1.style.color = '#fff';
-  h1.style.textShadow = '0 0 20px #facc15';
-  h1.style.textAlign = 'center';
-  h1.style.pointerEvents = 'none';
-  document.body.appendChild(h1);
+  
+  const modal = document.createElement('div');
+  modal.className = 'victory-modal';
+  modal.innerHTML = `
+    <h1 class="victory-modal-title">🏆 VICTORY! 🏆</h1>
+    <div class="victory-modal-winner">Discoverer: ${data.winnerWinId}</div>
+    <div class="victory-modal-instruction">Press [ Space ] to Close All Windows</div>
+  `;
+  document.body.appendChild(modal);
 });
 
 channel.on(MSG.CLOSE_ALL, () => {
