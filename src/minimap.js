@@ -10,9 +10,9 @@ let pingRtt = 0;
 let msgRate = 0;
 let intervalId = null;
 
-// Document Picture-in-Picture 관련 상태
+// Document Picture-in-Picture 상태
 let pipWindow = null;
-let isPipExpanded = false; // false: 축소(아이콘/뱃지) 모드, true: 확장(미니맵 캔버스) 모드
+let isPipExpanded = true; // 기본값: 레이더 활성화 상태
 let mKeyPressed = false;
 
 /** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다. */
@@ -26,7 +26,7 @@ export function initMinimap(channel) {
   player = null;
   msgRate = 0;
   pingRtt = 0;
-  isPipExpanded = false;
+  isPipExpanded = true;
   
   if (intervalId) clearInterval(intervalId);
 
@@ -54,28 +54,30 @@ export function initMinimap(channel) {
       requestAnimationFrame(drawMinimap);
     }),
 
-    // 모든 방에서 발생하는 키 입력을 통해 M 키 토글 감지
+    // 모든 방에서 발생하는 키 입력을 통해 M / ㅡ 키 토글 감지
     channel.on(MSG.INPUT, (data) => {
-      const hasM = data.keys && data.keys.some(k => k.toLowerCase() === 'm');
+      const hasM = data.keys && data.keys.some(k => k.toLowerCase() === 'm' || k === 'ㅡ' || k.toLowerCase() === 'keym');
       if (hasM && !mKeyPressed) {
         mKeyPressed = true;
-        togglePipExpansion();
+        togglePipMode();
       } else if (!hasM) {
         mKeyPressed = false;
       }
     }),
   ];
 
-  // 런처 화면 내에서 직접 M 키 입력 시에도 토글
+  // 런처 화면 내에서 직접 M / ㅡ 키 입력 시에도 토글
   const onLauncherKey = (e) => {
-    if (e.key.toLowerCase() === 'm' && !e.repeat) {
-      togglePipExpansion();
+    const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
+    if (isM && !e.repeat) {
+      e.preventDefault();
+      togglePipMode();
     }
   };
   window.addEventListener('keydown', onLauncherKey);
   unsubscribers.push(() => window.removeEventListener('keydown', onLauncherKey));
 
-  // PiP 열기/닫기 버튼 바인딩
+  // PiP 수동 버튼 바인딩
   const btnPip = document.getElementById('btn-pip');
   if (btnPip) {
     const onPipClick = () => togglePipWindow();
@@ -96,25 +98,34 @@ export function initMinimap(channel) {
   };
 }
 
+/** 외부(런처 시작 클릭 핸들러 등)에서 PiP 창을 기본으로 열기 위한 함수 */
+export async function openPipMinimap() {
+  if (!('documentPictureInPicture' in window)) return;
+  if (pipWindow && !pipWindow.closed) return;
+  await togglePipWindow(true);
+}
+
 /** Document Picture-in-Picture 윈도우 생성/해제 토글 */
-async function togglePipWindow() {
+async function togglePipWindow(forceOpen = false) {
   if (!('documentPictureInPicture' in window)) {
-    alert('현재 브라우저에서는 Document Picture-in-Picture API를 지원하지 않습니다.\n최신 Chromium 브라우저(Chrome/Edge 111 이상)에서 사용 가능합니다.');
+    if (!forceOpen) {
+      alert('현재 브라우저에서는 Document Picture-in-Picture API를 지원하지 않습니다.\n최신 Chromium 브라우저(Chrome/Edge 111 이상)에서 사용 가능합니다.');
+    }
     return;
   }
 
-  // 이미 열려 있으면 닫기
+  // 이미 열려 있으면 닫기 (forceOpen이 아닐 때만)
   if (pipWindow && !pipWindow.closed) {
-    pipWindow.close();
+    if (!forceOpen) pipWindow.close();
     return;
   }
 
   try {
-    // 1. 컴팩트한 초기 크기로 PiP 창 열기
-    isPipExpanded = false;
+    // 적절하고 쾌적한 전술 플로팅 레이더 크기 (280x200)로 생성
+    isPipExpanded = true;
     pipWindow = await window.documentPictureInPicture.requestWindow({
-      width: 250,
-      height: 72,
+      width: 280,
+      height: 200,
     });
 
     const btnPip = document.getElementById('btn-pip');
@@ -123,14 +134,14 @@ async function togglePipWindow() {
       btnPip.innerHTML = '📌 PiP 활성화됨 (M)';
     }
 
-    // 2. 부모 창의 스타일시트 복사
+    // 부모 창의 스타일시트 복사
     copyStylesheetsToPip(pipWindow);
 
-    // 3. PiP 윈도우 DOM 렌더링
+    // PiP 윈도우 DOM 렌더링
     pipWindow.document.body.className = 'pip-body';
     renderPipDOM();
 
-    // 4. 윈도우 종료 시 원래 런처 위치로 캔버스 복귀
+    // 윈도우 종료 시 원래 런처 위치로 캔버스 복원
     pipWindow.addEventListener('pagehide', () => {
       restoreCanvasToLauncher();
       pipWindow = null;
@@ -141,16 +152,17 @@ async function togglePipWindow() {
       }
     });
 
-    // 5. PiP 윈도우 포커스 상태에서의 M 키 감지
+    // PiP 윈도우 포커스 상태에서의 M / ㅡ 키 감지
     pipWindow.addEventListener('keydown', (e) => {
-      if (e.key.toLowerCase() === 'm' && !e.repeat) {
+      const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
+      if (isM && !e.repeat) {
         e.preventDefault();
-        togglePipExpansion();
+        togglePipMode();
       }
     });
 
   } catch (err) {
-    console.error('[Minimap] Document PiP 열기 실패:', err);
+    console.warn('[Minimap] Document PiP 열기 실패/취소:', err);
   }
 }
 
@@ -160,58 +172,83 @@ function renderPipDOM() {
 
   pipWindow.document.body.innerHTML = `
     <div class="pip-wrapper">
-      <!-- 1. 축소 모드 (지도 이모지 뱃지) -->
+      <!-- 1. 축소 모드: 방해되지 않는 작은 플로팅 배지 -->
       <div id="pip-collapsed-view" class="pip-collapsed-view" style="${isPipExpanded ? 'display:none;' : 'display:flex;'}">
         <span class="pip-icon-large">🗺️</span>
-        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M</span></span>
+        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M / ㅡ</span></span>
       </div>
 
-      <!-- 2. 확장 모드 (실시간 레이더 캔버스) -->
+      <!-- 2. 확장 모드: 실시간 전술 레이더 캔버스 -->
       <div id="pip-expanded-view" class="pip-expanded-view" style="${isPipExpanded ? 'display:flex;' : 'display:none;'}">
         <div id="pip-topbar" class="pip-topbar">
-          <span class="pip-topbar-title">🗺️ 공간 미니맵</span>
-          <span class="pip-kbd">M 접기</span>
+          <span class="pip-topbar-title">🗺️ 공간 레이더</span>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button id="btn-pip-size-toggle" class="btn-pip" style="padding: 1px 6px; font-size: 10px;">⤡ 축소</button>
+            <span class="pip-kbd">M / ㅡ</span>
+          </div>
         </div>
         <div id="pip-canvas-area" class="pip-canvas-area"></div>
         <div id="pip-bottom-metrics" class="pip-bottom-metrics">
-          <span>방: ${cellMap.size}개</span>
-          <span>RTT: ${pingRtt}ms</span>
+          <span>방: ${cellMap.size}개 | RTT: ${pingRtt}ms</span>
+          <span>Msg: ${msgRate}/s</span>
         </div>
       </div>
     </div>
   `;
 
-  // 축소 뷰 클릭 시 펼침
+  // 축소 뷰 클릭 시 펼침 및 크기 확장
   const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
   if (collapsedEl) {
-    collapsedEl.addEventListener('click', () => togglePipExpansion(true));
+    collapsedEl.addEventListener('click', () => {
+      togglePipMode(true);
+      try { pipWindow.resizeTo(280, 200); } catch(e) {}
+    });
   }
 
-  // 상단 바 클릭 시 접음
+  // 상단 바 클릭 시 접기
   const topbarEl = pipWindow.document.getElementById('pip-topbar');
   if (topbarEl) {
-    topbarEl.addEventListener('click', () => togglePipExpansion(false));
+    topbarEl.addEventListener('click', (e) => {
+      if (e.target.id !== 'btn-pip-size-toggle') {
+        togglePipMode(false);
+      }
+    });
+  }
+
+  // PiP 창 내부 크기 조절 버튼 클릭 (유저 제스처가 유효하므로 resizeTo 정상 작동)
+  const btnSizeToggle = pipWindow.document.getElementById('btn-pip-size-toggle');
+  if (btnSizeToggle) {
+    btnSizeToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      try {
+        if (pipWindow.innerHeight > 100) {
+          pipWindow.resizeTo(250, 68);
+          togglePipMode(false);
+        } else {
+          pipWindow.resizeTo(280, 200);
+          togglePipMode(true);
+        }
+      } catch (err) {}
+    });
   }
 
   syncCanvasLocation();
 }
 
-/** PiP 창의 축소(이모지) ↔ 확장(미니맵) 상태 토글 */
-function togglePipExpansion(forceState = null) {
+/** PiP 창의 표시 모드(레이더 캔버스 ↔ 미니 뱃지) 토글 */
+function togglePipMode(forceState = null) {
   if (!pipWindow || pipWindow.closed) return;
 
   isPipExpanded = (forceState !== null) ? forceState : !isPipExpanded;
 
-  // 창 크기 조절 (축소: 250x72, 확장: 360x260)
+  // 브라우저가 지원하는 경우 창 크기 변경 시도
   try {
     if (isPipExpanded) {
-      pipWindow.resizeTo(360, 260);
+      pipWindow.resizeTo(280, 200);
     } else {
-      pipWindow.resizeTo(250, 72);
+      pipWindow.resizeTo(250, 68);
     }
-  } catch (e) {
-    // 브라우저 정책 클램프 무시
-  }
+  } catch (e) {}
 
   const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
   const expandedEl = pipWindow.document.getElementById('pip-expanded-view');
@@ -283,7 +320,7 @@ function updateMetrics() {
   if (pipWindow && !pipWindow.closed) {
     const pipBadgeText = pipWindow.document.getElementById('pip-badge-text');
     if (pipBadgeText) {
-      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M</span>`;
+      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M / ㅡ</span>`;
     }
     const pipBottomMetrics = pipWindow.document.getElementById('pip-bottom-metrics');
     if (pipBottomMetrics) {
