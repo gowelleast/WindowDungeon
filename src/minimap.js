@@ -267,6 +267,10 @@ function togglePipMode(forceState = null) {
 
 /** 캔버스를 현재 상태에 맞게 PiP 창 또는 런처로 이동 */
 function syncCanvasLocation() {
+  if (!canvas) {
+    canvas = document.getElementById('minimap-canvas');
+    if (canvas && !ctx) ctx = canvas.getContext('2d');
+  }
   if (!canvas) return;
 
   if (pipWindow && !pipWindow.closed) {
