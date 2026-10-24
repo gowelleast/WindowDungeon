@@ -128,15 +128,15 @@ window.addEventListener('beforeunload', () => {
   channel.close();
 });
 
-channel.on(MSG.VICTORY, (data) => {
+channel.on(MSG.VICTORY, () => {
   document.body.classList.add('victory-flash');
   
   const modal = document.createElement('div');
   modal.className = 'victory-modal';
   modal.innerHTML = `
-    <h1 class="victory-modal-title">🏆 VICTORY! 🏆</h1>
-    <div class="victory-modal-winner">Discoverer: ${data.winnerWinId}</div>
-    <div class="victory-modal-instruction">Press [ Space ] to Close All Windows</div>
+    <div class="victory-icon">🏆</div>
+    <h1 class="victory-modal-title">VICTORY</h1>
+    <div class="victory-modal-instruction">Press [Space] to close all windows</div>
   `;
   document.body.appendChild(modal);
 });

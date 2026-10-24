@@ -286,20 +286,20 @@ canvas#game-canvas {
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 
+.victory-icon {
+  font-size: 44px;
+  line-height: 1;
+  margin-bottom: 6px;
+  filter: drop-shadow(0 0 16px rgba(245, 158, 11, 0.6));
+}
+
 .victory-modal-title {
   font-size: 32px;
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.05em;
   color: #fef08a;
-  text-shadow: 0 0 20px #f59e0b;
-  margin: 0 0 12px 0;
-}
-
-.victory-modal-winner {
-  font-size: 15px;
-  color: #cbd5e1;
-  font-family: 'JetBrains Mono', monospace;
-  margin: 0 0 24px 0;
+  text-shadow: 0 0 24px #f59e0b;
+  margin: 0 0 20px 0;
 }
 
 .victory-modal-instruction {

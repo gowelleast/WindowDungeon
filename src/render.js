@@ -433,20 +433,20 @@ export function drawDungeonLighting(ctx, playerState = null) {
 export function drawPrompt(ctx, promptData) {
   ctx.save();
 
-  const boxW = 280;
-  const boxH = 92;
+  const boxW = 140;
+  const boxH = 68;
   const boxX = CX - boxW / 2;
   const boxY = CY - boxH / 2;
 
   // 1. 글래스모피즘 어두운 패널
   ctx.fillStyle = 'rgba(11, 14, 20, 0.9)';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-  ctx.shadowBlur = 24;
-  roundRect(ctx, boxX, boxY, boxW, boxH, 12);
+  ctx.shadowBlur = 20;
+  roundRect(ctx, boxX, boxY, boxW, boxH, 10);
   ctx.fill();
 
   // 2. 네온 오라 보더
-  ctx.shadowBlur = 10;
+  ctx.shadowBlur = 8;
   if (promptData.willOpenNew) {
     ctx.strokeStyle = '#38bdf8';
     ctx.shadowColor = '#0284c7';
@@ -455,44 +455,34 @@ export function drawPrompt(ctx, promptData) {
     ctx.shadowColor = '#059669';
   }
   ctx.lineWidth = 1.8;
-  roundRect(ctx, boxX, boxY, boxW, boxH, 12);
+  roundRect(ctx, boxX, boxY, boxW, boxH, 10);
   ctx.stroke();
 
   // 3. 키캡 배지 [ SPACE ]
   ctx.shadowBlur = 0;
-  const keyW = 100;
-  const keyH = 26;
+  const keyW = 80;
+  const keyH = 22;
   const keyX = CX - keyW / 2;
-  const keyY = boxY + 14;
+  const keyY = boxY + 11;
 
   ctx.fillStyle = '#1e293b';
-  roundRect(ctx, keyX, keyY, keyW, keyH, 6);
+  roundRect(ctx, keyX, keyY, keyW, keyH, 5);
   ctx.fill();
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
   ctx.lineWidth = 1;
-  roundRect(ctx, keyX, keyY, keyW, keyH, 6);
+  roundRect(ctx, keyX, keyY, keyW, keyH, 5);
   ctx.stroke();
 
-  ctx.font = 'bold 12px "JetBrains Mono", monospace';
+  ctx.font = 'bold 11px "JetBrains Mono", monospace';
   ctx.fillStyle = '#f8fafc';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('SPACE', CX, keyY + keyH / 2);
 
-  // 4. 타이틀 텍스트
-  ctx.font = '600 15px "Outfit", sans-serif';
+  // 4. 타이틀 텍스트: 방 이동
+  ctx.font = '600 14px "Outfit", sans-serif';
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('문 열기 / 공간 이동', CX, boxY + 54);
-
-  // 5. 목적지 상태 텍스트
-  ctx.font = '12px "Outfit", sans-serif';
-  if (promptData.willOpenNew) {
-    ctx.fillStyle = '#7dd3fc';
-    ctx.fillText('✦ 미지의 새 방을 개척합니다 ✦', CX, boxY + 74);
-  } else {
-    ctx.fillStyle = '#86efac';
-    ctx.fillText('↩ 이미 열려있는 방으로 이동 ↩', CX, boxY + 74);
-  }
+  ctx.fillText('방 이동', CX, boxY + 50);
 
   ctx.restore();
 }
