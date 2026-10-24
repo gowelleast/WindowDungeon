@@ -32,15 +32,6 @@ window.addEventListener('beforeunload', (e) => {
 document.getElementById('btn-start').addEventListener('click', async () => {
   disposeSession();
 
-  // 게임 시작 시 Document PiP 미니맵을 기본값으로 자동 실행 (유저 클릭 제스처 활용)
-  if ('documentPictureInPicture' in window) {
-    try {
-      await openPipMinimap();
-    } catch (e) {
-      console.warn('[Launcher] PiP 자동 실행 스킵/실패:', e);
-    }
-  }
-
   let screens = [];
   let currentScreenLabel = '';
   let left = 0;
@@ -126,6 +117,15 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   // 대시보드 컴포넌트 초기화
   sessionDisposers.push(initMinimap(channel));
   sessionDisposers.push(initInspector(channel));
+
+  // 게임 시작 시 Document PiP 미니맵 자동 실행 (미니맵 캔버스 초기화 후 호출)
+  if ('documentPictureInPicture' in window) {
+    try {
+      await openPipMinimap();
+    } catch (e) {
+      console.warn('[Launcher] PiP 자동 실행 스킵/실패:', e);
+    }
+  }
 
   worker = new Worker('./src/master-worker.js', { type: 'module' });
   
