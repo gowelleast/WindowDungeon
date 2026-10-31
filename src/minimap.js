@@ -431,8 +431,8 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     const rect = cellToScreenRect(s, cell.gx, cell.gy, CONFIG);
     const dx = offsetX + (rect.left - minX) * scale;
     const dy = offsetY + (rect.top - minY) * scale;
-    const dw = rect.width * scale;
-    const dh = rect.height * scale;
+    const dw = (rect.slotWidth || rect.width) * scale;
+    const dh = (rect.slotHeight || rect.height) * scale;
 
     targetCtx.fillStyle = 'rgba(16, 185, 129, 0.14)';
     targetCtx.fillRect(dx, dy, dw, dh);

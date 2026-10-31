@@ -85,14 +85,16 @@ document.getElementById('btn-start').addEventListener('click', async () => {
     }
   }
 
-  // 화면 해상도에 맞춘 동적 방 크기(폭/높이) 계산 (여백 없이 꽉 채움)
+  // 화면 해상도에 맞춘 동적 방 크기(폭/높이) 계산 (주소창/상태표시줄 오버헤드 63px 완벽 포함)
   const targetScreenForSize = details ? details.currentScreen : {
     availWidth: window.screen.availWidth,
     availHeight: window.screen.availHeight
   };
-  const { roomW, roomH } = computeDynamicRoomSize(targetScreenForSize.availWidth, targetScreenForSize.availHeight);
+  const { roomW, roomH, slotW, slotH } = computeDynamicRoomSize(targetScreenForSize.availWidth, targetScreenForSize.availHeight);
   CONFIG.ROOM_OUTER_W = roomW;
   CONFIG.ROOM_OUTER_H = roomH;
+  CONFIG.ROOM_SLOT_W = slotW;
+  CONFIG.ROOM_SLOT_H = slotH;
 
   if (details) {
     const formatScreen = (s) => ({
@@ -116,7 +118,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       // HELLO 재동기화 시에도 최신 배치를 보내도록 세션 상태를 함께 갱신
       screens = getTargetScreens();
       currentScreenLabel = details.currentScreen.label;
-      const data = { screens, currentScreenLabel, roomW, roomH };
+      const data = { screens, currentScreenLabel, roomW, roomH, slotW, slotH };
       channel.send(MSG.SCREENS_UPDATE, data);
       channel.emitLocal(MSG.SCREENS_UPDATE, data);
     };
@@ -170,13 +172,13 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   // Worker가 느리게 시작되는 경우를 대비해, 방(로비 포함)이 생성될 때마다 화면 정보를 확실히 동기화합니다.
   // BroadcastChannel은 자기 자신에게 메시지를 돌려주지 않으므로, 같은 창의 미니맵에는 emitLocal로 전달합니다.
   sessionDisposers.push(channel.on(MSG.HELLO, () => {
-    const data = { screens, currentScreenLabel, roomW, roomH };
+    const data = { screens, currentScreenLabel, roomW, roomH, slotW, slotH };
     channel.send(MSG.SCREENS_UPDATE, data);
     channel.emitLocal(MSG.SCREENS_UPDATE, data);
   }));
   
   // 만약을 위해 즉시 한번 쏴줌
-  const data = { screens, currentScreenLabel, roomW, roomH };
+  const data = { screens, currentScreenLabel, roomW, roomH, slotW, slotH };
   channel.send(MSG.SCREENS_UPDATE, data);
 
   sessionDisposers.push(channel.on(MSG.CLOSE_ALL, () => {

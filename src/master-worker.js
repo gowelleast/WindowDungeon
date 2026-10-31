@@ -219,6 +219,8 @@ channel.on(MSG.SCREENS_UPDATE, (data) => {
   if (data.roomW && data.roomH) {
     CONFIG.ROOM_OUTER_W = data.roomW;
     CONFIG.ROOM_OUTER_H = data.roomH;
+    CONFIG.ROOM_SLOT_W = data.slotW || data.roomW;
+    CONFIG.ROOM_SLOT_H = data.slotH || (data.roomH + (CONFIG.CHROME_OVERHEAD_Y || 63));
     if (cellMap.size === 0) {
       player.lx = CONFIG.ROOM_OUTER_W / 2;
       player.ly = CONFIG.ROOM_OUTER_H / 2;
@@ -232,6 +234,12 @@ channel.on(MSG.SCREENS_UPDATE, (data) => {
 
 channel.on(MSG.HELLO, (data) => {
   try {
+    if (data.overheadY && data.overheadY > 0) {
+      CONFIG.CHROME_OVERHEAD_Y = data.overheadY;
+      if (CONFIG.ROOM_SLOT_H) {
+        CONFIG.ROOM_OUTER_H = CONFIG.ROOM_SLOT_H - CONFIG.CHROME_OVERHEAD_Y;
+      }
+    }
     let cell = Array.from(cellMap.values()).find(c => c.winId === data.winId);
     
     if (!cell) {

@@ -1,8 +1,10 @@
 export const CONFIG = {
   ROOM_OUTER_W: 480,
-  ROOM_OUTER_H: 400,
+  ROOM_OUTER_H: 337,
+  ROOM_SLOT_W: 480,
+  ROOM_SLOT_H: 400,
   CHROME_OVERHEAD_X: 0,
-  CHROME_OVERHEAD_Y: 63,
+  CHROME_OVERHEAD_Y: 63, // Chrome macOS 팝업 실측 오버헤드 (타이틀바 28px + 주소표시줄 35px)
   TICK_HZ: 30, // Master → Replica 브로드캐스트 빈도
   PING_HZ: 1,
   CHANNEL_NAME: "dungeon-v1",
@@ -17,21 +19,29 @@ export const CONFIG = {
 };
 
 /**
- * 화면 해상도에 맞춰 여백 없이 꽉 차도록 방 크기(width, height)를 동적으로 계산합니다.
- * @param {number} availWidth 화면 가로 해상도
- * @param {number} availHeight 화면 세로 해상도
- * @param {number} minWidth 방의 최소 허용 너비 (기본 400px)
+ * 화면 해상도에 맞춰 브라우저 주소창/상태표시줄(오버헤드 63px)을 포함하여 
+ * 화면에 완벽하게 꽉 차도록 방의 외부 슬롯(slotW, slotH) 및 내부 컨텐츠 크기(roomW, roomH)를 계산합니다.
+ * @param {number} availWidth 화면 가로 가용 해상도
+ * @param {number} availHeight 화면 세로 가용 해상도
+ * @param {number} minWidth 방의 최소 허용 너비 (기본 380px)
  */
-export function computeDynamicRoomSize(availWidth, availHeight, minWidth = 400) {
+export function computeDynamicRoomSize(availWidth, availHeight, minWidth = 380, overheadY = CONFIG.CHROME_OVERHEAD_Y, overheadX = CONFIG.CHROME_OVERHEAD_X) {
   let cols = Math.round(availWidth / 480);
   if (cols <= 0 || availWidth / cols < minWidth) {
     cols = Math.max(1, Math.floor(availWidth / minWidth));
   }
-  const roomW = Math.floor(availWidth / cols);
+  // 화면 격자 슬롯 폭 및 내부 컨텐츠 폭
+  const slotW = Math.floor(availWidth / cols);
+  const roomW = Math.max(300, slotW - overheadX);
 
+  // 세로: 브라우저 외곽 높이 기준 약 360~400px으로 균등 분할
   let rows = Math.round(availHeight / 400);
   rows = Math.max(1, rows);
-  const roomH = Math.max(300, Math.floor(availHeight / rows));
+  
+  // 전체 가용 높이를 rows로 정확히 N등분한 물리 슬롯 높이! (외곽 전체가 차지할 높이)
+  const slotH = Math.floor(availHeight / rows);
+  // window.open의 height 파라미터(내부 컨텐츠) = 슬롯 높이 - 타이틀바/주소창 오버헤드
+  const roomH = Math.max(200, slotH - overheadY);
 
-  return { roomW, roomH, cols, rows };
+  return { roomW, roomH, slotW, slotH, cols, rows };
 }

@@ -58,9 +58,15 @@ let lockedAlertTimer = 0;
 window.addEventListener('click', () => { sound.init(); }, { once: true });
 window.addEventListener('keydown', () => { sound.init(); }, { once: true });
 
-// 1. 인사 (핸드쉐이크)
+// 1. 인사 (핸드쉐이크 및 브라우저 창 오버헤드 실측값 동기화)
 let helloTimer = setInterval(() => {
-  channel.send(MSG.HELLO, { winId });
+  const overheadY = window.outerHeight - window.innerHeight;
+  const overheadX = window.outerWidth - window.innerWidth;
+  channel.send(MSG.HELLO, { 
+    winId,
+    overheadY: (overheadY > 0) ? overheadY : undefined,
+    overheadX: (overheadX > 0) ? overheadX : undefined
+  });
 }, 100);
 
 // 2. 메시지 수신
