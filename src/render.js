@@ -351,78 +351,81 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
   ctx.setLineDash([]);
   ctx.restore();
 
-  // 2. 포탈 중앙 회오리 소용돌이 (Vortex Effect)
+  // 2. 포탈 내부 (열림: 황금빛 회오리 볼텍스 / 닫힘: 붉은 고대 마법 봉인진)
   if (hasKey) {
-    // 🌟 [열쇠 소지]: 황금빛 시공간 회오리 소용돌이
+    // 🌟 [열쇠 소지]: 끊임없이 회전하며 빨려 들어가는 고품질 회오리 볼텍스 (Continuous Cosmic Vortex)
 
     // (1) 포탈 심연 배경 방사형 그라데이션
-    const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 3, targetCx, targetCy, 38);
+    const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 2, targetCx, targetCy, 40);
     portalGrad.addColorStop(0, '#ffffff');
     portalGrad.addColorStop(0.2, '#fef08a');
-    portalGrad.addColorStop(0.45, '#f59e0b');
-    portalGrad.addColorStop(0.8, '#78350f');
-    portalGrad.addColorStop(1, 'rgba(15, 23, 42, 0.2)');
+    portalGrad.addColorStop(0.5, '#f59e0b');
+    portalGrad.addColorStop(0.8, '#92400e');
+    portalGrad.addColorStop(1, 'rgba(15, 23, 42, 0.4)');
     ctx.fillStyle = portalGrad;
     ctx.beginPath();
-    ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
+    ctx.arc(targetCx, targetCy, 39, 0, Math.PI * 2);
     ctx.fill();
 
-    // (2) 고속 회전하는 나선형 회오리 아크 (Swirl Spiral Arms)
-    const spinAngle = now * 0.0035;
-    const arms = 4;
+    // (2) 6개의 고밀도 회오리 나선 팔 (Continuous Dense Spiral Arms)
+    const spinAngle = now * 0.0032;
+    const numArms = 6;
     ctx.save();
     ctx.translate(targetCx, targetCy);
 
-    for (let i = 0; i < arms; i++) {
-      const baseAngle = spinAngle + (i * Math.PI * 2 / arms);
-      ctx.save();
-      ctx.rotate(baseAngle);
-
-      // 나선 궤적 그리기 (중심으로 빨려 들어가는 회오리 나선)
+    // Layer A: 눈부신 백금/황금 주 나선 줄기
+    for (let i = 0; i < numArms; i++) {
+      const armAngle = spinAngle + (i * Math.PI * 2 / numArms);
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      for (let t = 0; t <= 1; t += 0.05) {
-        const r = t * 36;
-        const a = t * 2.2;
+      for (let step = 0; step <= 25; step++) {
+        const t = step / 25; // 0 (외곽) -> 1 (중심)
+        const r = 38 * (1 - t) + 2;
+        // 중심으로 갈수록 곡률이 지수적으로 감기는 로그형 나선
+        const a = armAngle + Math.pow(t, 1.25) * 3.4;
         const px = Math.cos(a) * r;
         const py = Math.sin(a) * r;
-        if (t === 0) ctx.moveTo(px, py);
+        if (step === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.75 - (i % 2) * 0.2})`;
-      ctx.lineWidth = 2.2;
-      ctx.shadowColor = '#fde047';
-      ctx.shadowBlur = 10;
+      ctx.strokeStyle = (i % 2 === 0) ? 'rgba(255, 255, 255, 0.85)' : 'rgba(254, 240, 138, 0.7)';
+      ctx.lineWidth = 1.8;
+      ctx.shadowColor = '#fef08a';
+      ctx.shadowBlur = 8;
       ctx.stroke();
-
-      // 두 번째 보조 황금 에너지 줄기
-      ctx.beginPath();
-      for (let t = 0; t <= 1; t += 0.05) {
-        const r = t * 32;
-        const a = t * 2.5 + 0.3;
-        const px = Math.cos(a) * r;
-        const py = Math.sin(a) * r;
-        if (t === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.restore();
     }
 
-    // (3) 중심으로 빨려 들어가는 별빛 파티클
-    const particleCount = 8;
+    // Layer B: 차등 회전하는 앰버 보조 소용돌이 리본 (차등 유체 회전 효과)
+    const secondarySpin = -now * 0.0018;
+    for (let i = 0; i < 4; i++) {
+      const armAngle = secondarySpin + (i * Math.PI * 2 / 4);
+      ctx.beginPath();
+      for (let step = 0; step <= 20; step++) {
+        const t = step / 20;
+        const r = 32 * (1 - t) + 4;
+        const a = armAngle + Math.pow(t, 1.4) * 2.8;
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (step === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
+      ctx.lineWidth = 2.4;
+      ctx.shadowBlur = 4;
+      ctx.stroke();
+    }
+
+    // (3) 중심으로 가속하며 빨려 들어가는 별빛 파티클 (Inward Keplerian Particles)
+    const particleCount = 14;
     for (let p = 0; p < particleCount; p++) {
-      const pPhase = (now * 0.002 + p / particleCount) % 1;
-      const pRadius = 35 * (1 - pPhase);
-      const pAngle = -spinAngle * 1.5 + p * (Math.PI * 2 / particleCount) + pPhase * 3;
+      const pPhase = (now * 0.0018 + p / particleCount) % 1; // 0 -> 1
+      const pRadius = 37 * (1 - pPhase);
+      const pAngle = spinAngle * 1.5 + p * (Math.PI * 2 / particleCount) + Math.pow(pPhase, 1.3) * 5.2;
       const px = Math.cos(pAngle) * pRadius;
       const py = Math.sin(pAngle) * pRadius;
-      const pSize = 1.2 + pPhase * 1.8;
+      const pSize = 1.2 + (1 - pPhase) * 1.6;
+      const pAlpha = pPhase < 0.1 ? pPhase * 10 : (pPhase > 0.85 ? (1 - pPhase) / 0.15 : 1);
 
-      ctx.fillStyle = p % 2 === 0 ? '#ffffff' : '#fef08a';
+      ctx.fillStyle = (p % 2 === 0) ? `rgba(255, 255, 255, ${pAlpha})` : `rgba(254, 240, 138, ${pAlpha})`;
       ctx.shadowColor = '#ffffff';
       ctx.shadowBlur = 6;
       ctx.beginPath();
@@ -431,42 +434,94 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
     }
 
     // (4) 중앙 백열 싱귤래리티 코어
-    const corePulse = Math.sin(now / 150) * 1.5 + 6.5;
+    const corePulse = Math.sin(now / 130) * 1.5 + 7;
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = '#fef08a';
-    ctx.shadowBlur = 14;
+    ctx.shadowBlur = 16;
     ctx.beginPath();
     ctx.arc(0, 0, corePulse, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
-
-    // 사용자 요청: "✨ 탈출구 개방됨!" 및 "[SPACE]로 탈출" 텍스트 제거 완료
   } else {
-    // 🔒 [열쇠 미소지]: 붉은 봉인 사슬 및 자물쇠 홀로그램
-    const lockedGrad = ctx.createRadialGradient(targetCx, targetCy, 5, targetCx, targetCy, 38);
-    lockedGrad.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
-    lockedGrad.addColorStop(0.8, 'rgba(153, 27, 27, 0.45)');
-    lockedGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    // 🔒 [열쇠 미소지]: 고대 마법 봉인 결계 (Arcane Runic Seal Barrier)
+    const lockedGrad = ctx.createRadialGradient(targetCx, targetCy, 4, targetCx, targetCy, 40);
+    lockedGrad.addColorStop(0, 'rgba(239, 68, 68, 0.35)');
+    lockedGrad.addColorStop(0.5, 'rgba(153, 27, 27, 0.5)');
+    lockedGrad.addColorStop(1, 'rgba(15, 23, 42, 0.3)');
     ctx.fillStyle = lockedGrad;
     ctx.beginPath();
-    ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
+    ctx.arc(targetCx, targetCy, 39, 0, Math.PI * 2);
     ctx.fill();
 
-    // 🔒 자물쇠 아이콘 그리기
-    ctx.font = '28px sans-serif';
+    ctx.save();
+    ctx.translate(targetCx, targetCy);
+
+    // 1. 역방향으로 천천히 회전하는 고대 8각 결계 룬진 (Runic Seal Matrix)
+    const sealAngle = -now * 0.0007;
+    ctx.rotate(sealAngle);
+
+    // 결계 8각 십자선
+    ctx.strokeStyle = 'rgba(248, 113, 113, 0.35)';
+    ctx.lineWidth = 1.2;
+    for (let r = 0; r < 4; r++) {
+      ctx.beginPath();
+      ctx.moveTo(-36, 0);
+      ctx.lineTo(36, 0);
+      ctx.stroke();
+      ctx.rotate(Math.PI / 4);
+    }
+
+    // 4방위 결계 룬 노드 (Glowing Red Seal Nodes)
+    for (let n = 0; n < 4; n++) {
+      const nodeAngle = n * Math.PI / 2;
+      const nx = Math.cos(nodeAngle) * 32;
+      const ny = Math.sin(nodeAngle) * 32;
+      ctx.fillStyle = '#f87171';
+      ctx.shadowColor = '#ef4444';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(nx, ny, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 2. 바깥으로 잔잔하게 퍼져나가는 결계 파동 (Seal Barrier Pulse Wave)
+    const pulsePhase = (now * 0.001) % 1;
+    const pulseR = 12 + pulsePhase * 24;
+    ctx.strokeStyle = `rgba(239, 68, 68, ${(1 - pulsePhase) * 0.55})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(targetCx, targetCy, pulseR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 3. 결계 주변을 맴도는 붉은 마법 불씨 (Crimson Embers)
+    for (let e = 0; e < 5; e++) {
+      const emberAngle = (now * 0.0012) + e * (Math.PI * 2 / 5);
+      const emberDist = 24 + Math.sin(now / 260 + e * 2) * 6;
+      ctx.fillStyle = 'rgba(254, 202, 202, 0.75)';
+      ctx.shadowColor = '#ef4444';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(targetCx + Math.cos(emberAngle) * emberDist, targetCy + Math.sin(emberAngle) * emberDist, 1.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 4. 부유하는 자물쇠 아이콘 (Floating Lock with Glow)
+    const lockFloatY = Math.sin(now / 220) * 3;
+    ctx.font = '26px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🔒', targetCx, targetCy);
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 12;
+    ctx.fillText('🔒', targetCx, targetCy + lockFloatY);
 
-    // 봉인 텍스트
+    // 5. '봉인된 탈출문' 문구는 삭제하고, '황금 열쇠 필요' 문구만 노출
     ctx.font = 'bold 12px "Outfit", sans-serif';
-    ctx.fillStyle = '#f87171';
-    ctx.shadowBlur = 6;
-    ctx.fillText('봉인된 탈출문', targetCx, targetCy - 50);
-    ctx.font = '500 10.5px sans-serif';
-    ctx.fillStyle = '#fca5a5';
-    ctx.fillText('황금 열쇠 필요', targetCx, targetCy + 52);
+    ctx.fillStyle = '#fde047';
+    ctx.shadowColor = '#eab308';
+    ctx.shadowBlur = 8;
+    ctx.fillText('황금 열쇠 필요', targetCx, targetCy + 54);
   }
 
   ctx.restore();

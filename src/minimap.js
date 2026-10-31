@@ -176,7 +176,7 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
       <div class="pip-wrapper" style="width:100%; height:100%; display:flex; flex-direction:column; background:#080a0f;">
         <div class="pip-topbar" style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#11151f; border-bottom:1px solid rgba(255,255,255,0.08);">
           <span class="pip-topbar-title" style="font-size:12px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:5px;">
-            🗺️ 전술 미니맵 레이더
+            🗺️ 미니맵
           </span>
           <button id="btn-pip-close-x" class="btn-pip" style="padding:2px 8px; font-size:11px; background:#1e293b; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:4px; cursor:pointer;">
             ✕ 닫기 (M)

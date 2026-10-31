@@ -78,7 +78,8 @@ canvas#game-canvas {
 .title-castle {
   display: inline-block;
   transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-  -webkit-text-fill-color: initial;
+  filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255, 255, 255, 0.4));
+  opacity: 0.95;
 }
 
 .launcher-title:hover .title-castle {
@@ -165,31 +166,52 @@ canvas#game-canvas {
 
 /* 버튼 스타일 */
 .btn-primary {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 14px 32px;
+  padding: 16px 36px;
   font-family: 'Outfit', sans-serif;
   font-size: 17px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  border: none;
-  border-radius: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #0f172a;
+  background: linear-gradient(135deg, #fef08a 0%, #f59e0b 50%, #d97706 100%);
+  border: 1px solid rgba(254, 240, 138, 0.7);
+  border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.2);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 25px rgba(245, 158, 11, 0.45), 0 8px 20px -6px rgba(0, 0, 0, 0.7), inset 0 1px 2px rgba(255, 255, 255, 0.8);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -70%;
+  width: 45%;
+  height: 200%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+  transform: rotate(25deg);
+  transition: left 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.btn-primary:hover::after {
+  left: 140%;
 }
 
 .btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 25px rgba(16, 185, 129, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3);
-  background: linear-gradient(135deg, #34d399 0%, #059669 100%);
+  transform: translateY(-2.5px) scale(1.02);
+  box-shadow: 0 0 35px rgba(245, 158, 11, 0.7), 0 12px 28px -6px rgba(0, 0, 0, 0.8), inset 0 1px 2px rgba(255, 255, 255, 0.9);
+  background: linear-gradient(135deg, #ffffff 0%, #fef08a 40%, #f59e0b 100%);
 }
 
 .btn-primary:active {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.99);
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.5);
 }
 
 .btn-reset {
