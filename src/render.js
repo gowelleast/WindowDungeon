@@ -373,7 +373,7 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
     ctx.save();
     ctx.translate(targetCx, targetCy);
 
-    // Layer A: 눈부신 백금/황금 주 나선 줄기
+    // Layer A: 은은하고 몽환적인 백금/황금빛 회오리 선 (투명도를 높여 부드럽고 흐릿하게 렌더링)
     for (let i = 0; i < numArms; i++) {
       const armAngle = spinAngle + (i * Math.PI * 2 / numArms);
       ctx.beginPath();
@@ -387,14 +387,14 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
         if (step === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = (i % 2 === 0) ? 'rgba(255, 255, 255, 0.85)' : 'rgba(254, 240, 138, 0.7)';
-      ctx.lineWidth = 1.8;
-      ctx.shadowColor = '#fef08a';
-      ctx.shadowBlur = 8;
+      ctx.strokeStyle = (i % 2 === 0) ? 'rgba(255, 255, 255, 0.28)' : 'rgba(254, 240, 138, 0.2)';
+      ctx.lineWidth = 1.6;
+      ctx.shadowColor = 'rgba(254, 240, 138, 0.35)';
+      ctx.shadowBlur = 12;
       ctx.stroke();
     }
 
-    // Layer B: 차등 회전하는 앰버 보조 소용돌이 리본 (차분한 역방향 회전)
+    // Layer B: 차등 회전하는 앰버 보조 소용돌이 리본 (안개처럼 은은하고 흐릿한 투명도)
     const secondarySpin = -now * 0.00045;
     for (let i = 0; i < 4; i++) {
       const armAngle = secondarySpin + (i * Math.PI * 2 / 4);
@@ -408,9 +408,10 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
         if (step === 0) ctx.moveTo(px, py);
         else ctx.lineTo(px, py);
       }
-      ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
-      ctx.lineWidth = 2.4;
-      ctx.shadowBlur = 4;
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.16)';
+      ctx.lineWidth = 2.2;
+      ctx.shadowColor = 'rgba(245, 158, 11, 0.2)';
+      ctx.shadowBlur = 8;
       ctx.stroke();
     }
 
