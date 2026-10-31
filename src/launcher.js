@@ -4,13 +4,51 @@ import { MSG } from './protocol.js';
 import { initMinimap, openPipMinimap } from './minimap.js';
 import { initInspector } from './inspector.js';
 
+import { sound } from './sound.js';
+
 let worker;
 const myWinId = 'launcher';
 window.name = myWinId;
 const channel = new DungeonChannel(myWinId);
 
+// 모바일 기기 감지 (iOS, Android, 터치 전용 기기)
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+  (window.matchMedia && window.matchMedia('(max-width: 768px)').matches && 'ontouchstart' in window);
+
+if (isMobileDevice) {
+  const mobileCard = document.getElementById('mobile-card');
+  const startScreen = document.getElementById('start-screen');
+  if (mobileCard && startScreen) {
+    mobileCard.style.display = 'block';
+    startScreen.style.display = 'none';
+  }
+
+  const btnCopy = document.getElementById('btn-copy-url');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        const fb = document.getElementById('copy-feedback');
+        if (fb) fb.style.display = 'block';
+      } catch (e) {
+        prompt('아래 주소를 복사해 노트북 Chrome에서 열어주세요:', window.location.href);
+      }
+    });
+  }
+}
+
+// 런처 사운드 토글 버튼 바인딩
+const btnLauncherMute = document.getElementById('btn-launcher-mute');
+if (btnLauncherMute) {
+  btnLauncherMute.addEventListener('click', () => {
+    sound.init();
+    const isMuted = sound.toggleMute();
+    btnLauncherMute.textContent = isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+    channel.send(MSG.SOUND_MUTE_SYNC, { isMuted });
+  });
+}
+
 // 한 게임 세션 동안 등록한 구독/리스너의 정리 함수 목록.
-// "게임 시작"을 다시 누를 때 이전 세션 것을 모두 해제해 핸들러·로그·screenschange 리스너 중복을 막습니다.
 let sessionDisposers = [];
 
 function disposeSession() {

@@ -1,8 +1,18 @@
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
-import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
+import { 
+  drawRoom, 
+  drawPlayer, 
+  drawPrompt, 
+  drawKey, 
+  drawExitPortal, 
+  drawMonster, 
+  drawDungeonLighting, 
+  drawHUD 
+} from './render.js';
 import { CONFIG } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
+import { sound } from './sound.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
 const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -34,8 +44,17 @@ let currentPrompt = null;
 let isVictory = false;
 let confetti = null;
 
+let isExitRoom = false;
+let isKeyRoom = false;
+let hasKey = false;
+let latestMonster = null;
+let lockedAlertTimer = 0;
+
+// 유저 첫 클릭/인터랙션 시 오디오 컨텍스트 활성화
+window.addEventListener('click', () => { sound.init(); }, { once: true });
+window.addEventListener('keydown', () => { sound.init(); }, { once: true });
+
 // 1. 인사 (핸드쉐이크)
-// Worker가 완전히 초기화되기 전에 팝업이 뜰 수 있으므로, 응답을 받을 때까지 주기적으로 보냅니다.
 let helloTimer = setInterval(() => {
   channel.send(MSG.HELLO, { winId });
 }, 100);
@@ -49,10 +68,16 @@ channel.on(MSG.ASSIGN, (data) => {
     }
     myCellId = data.id;
     roomData = data;
+    isExitRoom = !!data.isExitRoom;
+    isKeyRoom = !!data.isKeyRoom;
+    hasKey = !!data.hasKey;
+
     requestAnimationFrame(() => {
       drawRoom(ctx, roomData);
-      if (roomData.hasFlag) drawFlag(ctx);
+      if (isExitRoom) drawExitPortal(ctx, hasKey);
+      if (isKeyRoom && !hasKey) drawKey(ctx);
       drawDungeonLighting(ctx, null);
+      drawHUD(ctx, hasKey, sound.isMuted);
     });
   }
 });
@@ -67,6 +92,30 @@ channel.on(MSG.DOOR_PROMPT, (data) => {
   }
 });
 
+// 사운드 및 상호작용 피드백 이벤트
+channel.on(MSG.KEY_COLLECTED, () => {
+  hasKey = true;
+  sound.playKey();
+});
+
+channel.on(MSG.DOOR_LOCKED, (data) => {
+  if (data.activeCellId === myCellId) {
+    sound.playLocked();
+    lockedAlertTimer = 40; // 화면에 잠김 알림 일시 점등
+  }
+});
+
+channel.on(MSG.MONSTER_HIT, (data) => {
+  if (data.activeCellId === myCellId) {
+    sound.playMonsterHit();
+  }
+});
+
+channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
+  sound.setMute(data.isMuted);
+});
+
+// 3. 메인 렌더링 틱
 channel.on(MSG.TICK, (data) => {
   if (!myCellId || isVictory) return;
 
@@ -75,17 +124,31 @@ channel.on(MSG.TICK, (data) => {
     keys.clear();
   }
 
+  hasKey = data.hasKey;
+  latestMonster = data.monster;
+  if (data.exitCellId === myCellId) isExitRoom = true;
+  if (data.keyCellId === myCellId) isKeyRoom = true;
+
   requestAnimationFrame(() => {
-    
     // 1. 방 바닥, 벽, 문 렌더링
     drawRoom(ctx, roomData, isPlayerHere ? currentPrompt : null);
-    
-    // 2. 깃발 (황금 제단) 렌더링
-    if (roomData && roomData.hasFlag) {
-      drawFlag(ctx);
+
+    // 2. 고대 탈출문 렌더링
+    if (isExitRoom) {
+      drawExitPortal(ctx, hasKey);
     }
 
-    // 3. 플레이어 및 조명 렌더링
+    // 3. 황금 열쇠 렌더링 (아직 안 먹었을 때만)
+    if (isKeyRoom && !hasKey) {
+      drawKey(ctx);
+    }
+
+    // 4. 그림자 몬스터 렌더링 (몬스터가 이 방에 있을 때)
+    if (latestMonster && latestMonster.cellId === myCellId) {
+      drawMonster(ctx, latestMonster);
+    }
+
+    // 5. 플레이어 및 다이나믹 조명 렌더링
     if (isPlayerHere) {
       drawPlayer(ctx, data);
       drawDungeonLighting(ctx, data);
@@ -93,26 +156,42 @@ channel.on(MSG.TICK, (data) => {
     } else {
       drawDungeonLighting(ctx, null);
     }
+
+    // 6. 상단 HUD (열쇠 상태 및 사운드 안내)
+    drawHUD(ctx, hasKey, sound.isMuted);
   });
 });
 
-// 3. 키보드 입력 및 동기적 window.open 실행
+// 4. 키보드 입력 및 동기적 window.open 실행
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) e.preventDefault();
+  const isU = e.code === 'KeyU' || e.key === 'u' || e.key === 'U' || e.key === 'ㅕ';
 
-  // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) {
+    e.preventDefault();
+  }
+
+  // U 키: 실시간 음소거 토글
+  if (isU && !e.repeat) {
+    const isMuted = sound.toggleMute();
+    channel.send(MSG.SOUND_MUTE_SYNC, { isMuted });
+    return;
+  }
+
+  // 승리 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
   if (e.key === ' ' && isVictory) {
     channel.send(MSG.CLOSE_ALL);
     window.close();
     return;
   }
 
+  // 문 열기 인터랙션
   if (e.key === ' ' && currentPrompt) {
-    // 문 통과 순간 이전 방에서 누르고 있던 모든 이동 키 즉시 해제
     keys.clear();
     channel.send(MSG.INPUT, { keys: [] });
+
+    sound.playDoorPass();
 
     if (currentPrompt.willOpenNew) {
       const { targetWinId, rect } = currentPrompt;
@@ -164,22 +243,24 @@ window.addEventListener('beforeunload', () => {
   channel.close();
 });
 
+// 승리(VICTORY) 처리 및 멀티스크린 연속 꽃가루
 channel.on(MSG.VICTORY, (data) => {
   isVictory = true;
   document.body.classList.add('victory-flash');
+  sound.playVictory();
   
   if (!document.querySelector('.victory-modal')) {
     const modal = document.createElement('div');
     modal.className = 'victory-modal';
     modal.innerHTML = `
       <div class="victory-icon">🏆</div>
-      <h1 class="victory-modal-title">VICTORY</h1>
+      <h1 class="victory-modal-title">DUNGEON CLEARED!</h1>
+      <div style="font-size: 15px; color: #fef08a; margin-bottom: 12px; font-weight: 600;">탈출 포탈 개방 성공!</div>
       <div class="victory-modal-instruction">Press [Space] to close all windows</div>
     `;
     document.body.appendChild(modal);
   }
 
-  // Window Management API 기반 연속 낙하 꽃가루 시뮬레이터 초기화
   const bounds = (data && data.globalBounds) ? data.globalBounds : {
     minTop: 0,
     maxBottom: window.screen.availHeight,
@@ -197,18 +278,14 @@ channel.on(MSG.VICTORY, (data) => {
     height: canvas.height
   };
 
-  // 승리 화면 및 연속 꽃가루 애니메이션 루프
   const animateVictory = () => {
     if (!isVictory) return;
 
-    // 1. 방 바닥 및 오브젝트 기본 렌더링 유지
     drawRoom(ctx, roomData, null);
-    if (roomData && roomData.hasFlag) drawFlag(ctx);
+    if (isExitRoom) drawExitPortal(ctx, true);
     drawDungeonLighting(ctx, null);
 
-    // 2. 전역 좌표 기반 연속 낙하 꽃가루 렌더링
     confetti.render(ctx, myRect);
-
     requestAnimationFrame(animateVictory);
   };
   requestAnimationFrame(animateVictory);

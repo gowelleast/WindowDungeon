@@ -11,4 +11,8 @@ export const MSG = {
   SCREENS_UPDATE: "screensUpdate",
   VICTORY: "victory",
   CLOSE_ALL: "closeAll",
+  KEY_COLLECTED: "keyCollected",
+  DOOR_LOCKED: "doorLocked",
+  MONSTER_HIT: "monsterHit",
+  SOUND_MUTE_SYNC: "soundMuteSync",
 };

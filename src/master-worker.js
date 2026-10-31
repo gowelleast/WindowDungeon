@@ -1,20 +1,42 @@
 import { CONFIG } from './config.js';
 import { MSG } from './protocol.js';
 import { DungeonChannel } from './channel.js';
-import { cellId as getCellId, cellToScreenRect, isCellValid, neighbors } from './grid.js';
+import { cellId as getCellId, cellToScreenRect, isCellValid } from './grid.js';
 
 const channel = new DungeonChannel('master-worker');
 
 let cellMap = new Map(); 
 let screens = [];
 
+// 플레이어 상태
 const player = {
   cellId: 'lobby',
   lx: CONFIG.ROOM_OUTER_W / 2,
   ly: CONFIG.ROOM_OUTER_H / 2,
   vx: 0, vy: 0, speed: CONFIG.PLAYER_SPEED || 6, radius: 15, facing: 'down',
-  // 벽 반동 넉백 속도. 입력 속도와 별도로 유지되며 매 tick 감쇠합니다.
-  kx: 0, ky: 0
+  kx: 0, ky: 0,
+  stunTimer: 0 // 피격 시 일시 스턴 틱 카운터
+};
+
+// 열쇠 & 탈출문 상태
+let hasKey = false;
+let exitCellId = null;
+let keyCellId = null;
+let exitDiscovered = false;
+let keyDiscovered = false;
+
+// 백그라운드 순찰 & 추적 몬스터 상태
+const monster = {
+  cellId: null,
+  lx: CONFIG.ROOM_OUTER_W / 2,
+  ly: CONFIG.ROOM_OUTER_H / 2,
+  vx: 0, vy: 0,
+  speed: CONFIG.MONSTER_SPEED || 2.5,
+  wanderSpeed: CONFIG.MONSTER_WANDER_SPEED || 1.5,
+  radius: 16,
+  state: 'wandering', // 'wandering' | 'chasing'
+  wanderCooldown: 0,
+  facing: 'down'
 };
 
 const keys = new Set();
@@ -50,7 +72,6 @@ function getAdjacentCell(screenLabel, gx, gy, dir) {
     const dy = sCy - currentCy;
 
     let isValidTarget = false;
-    // X축 거리(dx)가 Y축 거리(dy)보다 크면 좌/우 관계로 판별, 반대면 상/하 관계로 판별
     if (dir === 'right' && dx > 0 && Math.abs(dx) > Math.abs(dy)) isValidTarget = true;
     if (dir === 'left' && dx < 0 && Math.abs(dx) > Math.abs(dy)) isValidTarget = true;
     if (dir === 'down' && dy > 0 && Math.abs(dy) >= Math.abs(dx)) isValidTarget = true;
@@ -72,13 +93,11 @@ function getAdjacentCell(screenLabel, gx, gy, dir) {
     const maxGx = Math.floor(targetScreen.availWidth / CONFIG.ROOM_OUTER_W) - 1;
     const maxGy = Math.floor(targetScreen.availHeight / CONFIG.ROOM_OUTER_H) - 1;
 
-    // Y축 정렬 (좌/우 이동 시)
     const alignY = () => {
       let y = Math.floor((gy * CONFIG.ROOM_OUTER_H + currentScreen.availTop - targetScreen.availTop) / CONFIG.ROOM_OUTER_H);
       return Math.max(0, Math.min(y, maxGy));
     };
 
-    // X축 정렬 (상/하 이동 시)
     const alignX = () => {
       let x = Math.floor((gx * CONFIG.ROOM_OUTER_W + currentScreen.availLeft - targetScreen.availLeft) / CONFIG.ROOM_OUTER_W);
       return Math.max(0, Math.min(x, maxGx));
@@ -114,18 +133,23 @@ function calculateDoors(screen, gx, gy) {
   return doors;
 }
 
-let flagCellId = null;
 let isVictory = false;
 let isClosing = false;
+let lastLockedDoorNotify = 0;
 
-function generateFlag(startScreenLabel, startGx, startGy) {
+/**
+ * 게임 시작 시 BFS로 던전 전체 가상 그리드를 파악하고
+ * [황금 열쇠], [잠긴 탈출문], [순찰 몬스터]의 초기 위치를 각각 서로 먼 방으로 확정 배치합니다.
+ */
+function generateDungeonEntities(startScreenLabel, startGx, startGy) {
   const visited = new Set();
-  const queue = [{ screenLabel: startScreenLabel, gx: startGx, gy: startGy }];
+  const queue = [{ screenLabel: startScreenLabel, gx: startGx, gy: startGy, dist: 0 }];
   const reachableCells = [];
 
-  visited.add(getCellId(startScreenLabel, startGx, startGy));
+  const startId = getCellId(startScreenLabel, startGx, startGy);
+  visited.add(startId);
 
-  while(queue.length > 0) {
+  while (queue.length > 0) {
     const curr = queue.shift();
     const dirs = ['up', 'down', 'left', 'right'];
     for (const dir of dirs) {
@@ -134,17 +158,34 @@ function generateFlag(startScreenLabel, startGx, startGy) {
         const id = getCellId(adj.screen.label, adj.gx, adj.gy);
         if (!visited.has(id)) {
           visited.add(id);
-          queue.push({ screenLabel: adj.screen.label, gx: adj.gx, gy: adj.gy });
-          reachableCells.push(id);
+          const nextNode = { screenLabel: adj.screen.label, gx: adj.gx, gy: adj.gy, dist: curr.dist + 1, id };
+          queue.push(nextNode);
+          reachableCells.push(nextNode);
         }
       }
     }
   }
 
   if (reachableCells.length > 0) {
-    const randomIndex = Math.floor(Math.random() * reachableCells.length);
-    flagCellId = reachableCells[randomIndex];
-    console.log("[Master] Flag mapped to:", flagCellId);
+    // 거리가 먼 순서로 정렬
+    reachableCells.sort((a, b) => b.dist - a.dist);
+
+    // 1. 잠긴 탈출문 (가장 먼 방 중 하나)
+    exitCellId = reachableCells[0].id;
+
+    // 2. 황금 열쇠 (탈출문과 다른 방향 또는 중간~먼 거리 방)
+    if (reachableCells.length > 1) {
+      keyCellId = reachableCells[reachableCells.length - 1 < 3 ? 1 : Math.floor(reachableCells.length / 2)].id;
+    } else {
+      keyCellId = reachableCells[0].id;
+    }
+
+    // 3. 몬스터 (탈출문 근처 혹은 먼 방에서 스폰)
+    monster.cellId = reachableCells[Math.min(reachableCells.length - 1, 2)].id;
+    monster.lx = CONFIG.ROOM_OUTER_W / 2;
+    monster.ly = CONFIG.ROOM_OUTER_H / 2;
+
+    console.log("[Master] Entity Placement 완료 -> Exit:", exitCellId, "Key:", keyCellId, "Monster:", monster.cellId);
   }
 }
 
@@ -161,21 +202,18 @@ channel.on(MSG.SCREENS_UPDATE, (data) => {
       player.ly = CONFIG.ROOM_OUTER_H / 2;
     }
   }
-  if (!flagCellId) {
+  if (!exitCellId) {
     const lobby = Array.from(cellMap.values()).find(c => c.gx === 0 && c.gy === 0);
-    if (lobby) generateFlag(lobby.screenLabel, 0, 0);
+    if (lobby) generateDungeonEntities(lobby.screenLabel, 0, 0);
   }
 });
 
 channel.on(MSG.HELLO, (data) => {
-  console.log("[Master] Received HELLO from:", data.winId, "Screens count:", screens.length);
-  
   try {
     let cell = Array.from(cellMap.values()).find(c => c.winId === data.winId);
     
     if (!cell) {
       if (data.winId === 'lobby' && screens.length > 0) {
-        console.log("[Master] Creating lobby cell...");
         const targetScreen = screens.find(s => s.label === currentScreenLabel) || screens.find(s => s.isPrimary) || screens[0];
         const lobbyId = getCellId(targetScreen.label, 0, 0);
         cell = {
@@ -186,22 +224,25 @@ channel.on(MSG.HELLO, (data) => {
           winId: 'lobby',
           rect: cellToScreenRect(targetScreen, 0, 0, CONFIG)
         };
-        console.log("[Master] Created lobby cell:", cell);
         cellMap.set(lobbyId, cell);
         player.cellId = lobbyId;
         
-        if (!flagCellId) {
-          console.log("[Master] Generating flag...");
-          generateFlag(targetScreen.label, 0, 0);
+        if (!exitCellId) {
+          generateDungeonEntities(targetScreen.label, 0, 0);
         }
       }
     }
 
     if (cell) {
-      console.log("[Master] Sending ASSIGN to:", data.winId);
+      // 해당 방이 열쇠 방이거나 탈출문 방이면 발견 처리
+      if (cell.id === exitCellId) exitDiscovered = true;
+      if (cell.id === keyCellId) keyDiscovered = true;
+
       channel.send(MSG.ASSIGN, {
         ...cell,
-        hasFlag: (cell.id === flagCellId)
+        isExitRoom: (cell.id === exitCellId),
+        isKeyRoom: (cell.id === keyCellId),
+        hasKey
       });
     } else {
       console.warn("[Master] 알 수 없는 방 접속:", data.winId);
@@ -230,11 +271,12 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   }
   
   player.cellId = nextId;
+  if (player.cellId === exitCellId) exitDiscovered = true;
+  if (player.cellId === keyCellId) keyDiscovered = true;
+
   keys.clear();
-  player.vx = 0;
-  player.vy = 0;
-  player.kx = 0;
-  player.ky = 0;
+  player.vx = 0; player.vy = 0;
+  player.kx = 0; player.ky = 0;
   const doorMargin = player.radius + 35;
   if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; player.facing = 'up'; }
   else if (data.dir === 'down') { player.ly = doorMargin; player.facing = 'down'; }
@@ -257,7 +299,6 @@ channel.on(MSG.INPUT, (data) => {
 channel.on(MSG.BYE, (data) => {
   if (isClosing) return;
   isClosing = true;
-  console.log("[Master] Received BYE from:", data.winId, "- Aborting game");
   channel.send(MSG.CLOSE_ALL);
 });
 
@@ -265,14 +306,118 @@ const TICK_MS = 1000 / CONFIG.TICK_HZ;
 let tickCount = 0;
 let lastPromptDir = null;
 
+/**
+ * 몬스터 AI 업데이트:
+ * - 미개척 방이라도 가상 그리드 상에서 1.5~2초마다 인접 방으로 Wandering 순찰
+ * - 플레이어와 같은 방이거나 1칸 거리면 Chasing 모드로 전환하여 추적
+ */
+function updateMonsterAI() {
+  if (!monster.cellId || isVictory) return;
+
+  const isSameRoom = (monster.cellId === player.cellId);
+
+  // 현재 몬스터가 위치한 셀 좌표 파악 (cellMap에 없어도 가상 그리드 계산 가능)
+  // cellId 형식: "label-gx-gy"
+  const parts = monster.cellId.split('-');
+  const mGy = parseInt(parts.pop(), 10);
+  const mGx = parseInt(parts.pop(), 10);
+  const mScreenLabel = parts.join('-');
+
+  // 플레이어와의 셀 거리 계산
+  let pGx = 0, pGy = 0;
+  const pCell = cellMap.get(player.cellId);
+  if (pCell) {
+    pGx = pCell.gx;
+    pGy = pCell.gy;
+  }
+  const cellDist = Math.abs(mGx - pGx) + Math.abs(mGy - pGy);
+
+  // 상태 전환: 같은 방이거나 1칸 이내면 추적!
+  if (isSameRoom || cellDist <= 1) {
+    monster.state = 'chasing';
+  } else {
+    monster.state = 'wandering';
+  }
+
+  if (isSameRoom) {
+    // 1. 같은 방에 있을 때: 플레이어를 향해 직접 이동
+    const mdx = player.lx - monster.lx;
+    const mdy = player.ly - monster.ly;
+    const dist = Math.sqrt(mdx * mdx + mdy * mdy);
+
+    if (dist > 5) {
+      monster.vx = (mdx / dist) * monster.speed;
+      monster.vy = (mdy / dist) * monster.speed;
+      monster.lx += monster.vx;
+      monster.ly += monster.vy;
+    }
+
+    if (Math.abs(mdx) > Math.abs(mdy)) {
+      monster.facing = mdx > 0 ? 'right' : 'left';
+    } else {
+      monster.facing = mdy > 0 ? 'down' : 'up';
+    }
+
+    // 플레이어 피격 충돌 검사
+    if (dist < player.radius + monster.radius) {
+      if (player.stunTimer <= 0) {
+        player.stunTimer = 30; // 1초간 스턴
+        // 피격 넉백 (몬스터 반대 방향으로 튕겨나감)
+        const angle = Math.atan2(player.ly - monster.ly, player.lx - monster.lx);
+        player.kx = Math.cos(angle) * 14;
+        player.ky = Math.sin(angle) * 14;
+        channel.send(MSG.MONSTER_HIT, { activeCellId: player.cellId });
+      }
+    }
+  } else if (monster.state === 'chasing' && cellDist === 1) {
+    // 2. 인접한 방에서 플레이어 방으로 문을 건너오는 중
+    monster.wanderCooldown -= 1;
+    if (monster.wanderCooldown <= 0) {
+      monster.wanderCooldown = 45; // 1.5초 딜레이
+      monster.cellId = player.cellId; // 플레이어 방으로 진입!
+      monster.lx = CONFIG.ROOM_OUTER_W / 2;
+      monster.ly = CONFIG.ROOM_OUTER_H / 2;
+    }
+  } else {
+    // 3. 미지의 가상 방에서 자유 순찰 (Wandering)
+    monster.wanderCooldown -= 1;
+    if (monster.wanderCooldown <= 0) {
+      monster.wanderCooldown = 60 + Math.floor(Math.random() * 30); // 2~3초마다 다음 방으로
+      
+      const dirs = ['up', 'down', 'left', 'right'];
+      const randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+      const adj = getAdjacentCell(mScreenLabel, mGx, mGy, randomDir);
+      if (adj) {
+        monster.cellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+        monster.lx = CONFIG.ROOM_OUTER_W / 2;
+        monster.ly = CONFIG.ROOM_OUTER_H / 2;
+      }
+    }
+  }
+
+  // 몬스터 방 내 좌표 클램핑
+  const mMinX = 25; const mMaxX = CONFIG.ROOM_OUTER_W - 25;
+  const mMinY = 25; const mMaxY = CONFIG.ROOM_OUTER_H - 25;
+  monster.lx = Math.max(mMinX, Math.min(monster.lx, mMaxX));
+  monster.ly = Math.max(mMinY, Math.min(monster.ly, mMaxY));
+}
+
+// 메인 30Hz 물리 & 게임 루프
 setInterval(() => {
   if (cellMap.size === 0 || isVictory) return;
 
+  // 스턴 중에는 플레이어 키 입력 불가
+  if (player.stunTimer > 0) {
+    player.stunTimer--;
+  }
+
   let dx = 0; let dy = 0;
-  if (keys.has('ArrowUp') || keys.has('w')) dy -= 1;
-  if (keys.has('ArrowDown') || keys.has('s')) dy += 1;
-  if (keys.has('ArrowLeft') || keys.has('a')) dx -= 1;
-  if (keys.has('ArrowRight') || keys.has('d')) dx += 1;
+  if (player.stunTimer <= 0) {
+    if (keys.has('ArrowUp') || keys.has('w')) dy -= 1;
+    if (keys.has('ArrowDown') || keys.has('s')) dy += 1;
+    if (keys.has('ArrowLeft') || keys.has('a')) dx -= 1;
+    if (keys.has('ArrowRight') || keys.has('d')) dx += 1;
+  }
 
   if (dx !== 0 && dy !== 0) {
     const len = Math.sqrt(dx*dx + dy*dy);
@@ -287,7 +432,6 @@ setInterval(() => {
   else if (inputVy < 0) player.facing = 'up';
   else if (inputVy > 0) player.facing = 'down';
 
-  // 실제 이동 속도 = 입력 속도 + 넉백 속도
   player.vx = inputVx + player.kx;
   player.vy = inputVy + player.ky;
 
@@ -296,7 +440,6 @@ setInterval(() => {
   player.lx += player.vx;
   player.ly += player.vy;
 
-  // 넉백 감쇠
   const decay = CONFIG.WALL_BOUNCE_DECAY ?? 0.6;
   player.kx *= decay;
   player.ky *= decay;
@@ -313,7 +456,6 @@ setInterval(() => {
   const cx = CONFIG.ROOM_OUTER_W / 2;
   const cy = CONFIG.ROOM_OUTER_H / 2;
 
-  // 해당 방향 벽의 문 구멍 앞에 있는지 (문은 벽이 아니므로 반동하지 않음 → 문 프롬프트 유지)
   const isAtDoorOpening = (dir) => {
     if (!currentCell || !currentCell.doors.includes(dir)) return false;
     if (dir === 'up' || dir === 'down') return Math.abs(player.lx - cx) < doorWidth / 2;
@@ -321,19 +463,16 @@ setInterval(() => {
   };
 
   const bounceStrength = CONFIG.WALL_BOUNCE_STRENGTH ?? 2;
-  // 이번 tick에 새로 벽에 부딪혔을 때만 넉백 임펄스 부여 (벽에 붙어 있는 동안 연속 발동 방지)
-  // sign: 벽에서 멀어지는 방향 (+1 / -1)
   const bounce = (axis, wasTouching, dir, impactSpeed, sign) => {
     const k = axis === 'x' ? 'kx' : 'ky';
     if (CONFIG.ENABLE_WALL_BOUNCE && !wasTouching && !isAtDoorOpening(dir)) {
       player[k] = sign * Math.abs(impactSpeed) * bounceStrength;
     } else if (Math.sign(player[k]) === -sign) {
-      // 벽 쪽으로 향하던 잔여 넉백은 제거
       player[k] = 0;
     }
   };
 
-  // 1. 벽 충돌 처리 (이동 제한 및 넉백 반동)
+  // 벽 충돌 검사
   if (player.ly < minY) {
     player.ly = minY;
     bounce('y', prevLy <= minY, 'up', player.vy, +1);
@@ -351,42 +490,62 @@ setInterval(() => {
     bounce('x', prevLx >= maxX, 'right', player.vx, -1);
   }
 
-  // 플래그 충돌 판정
-  if (player.cellId === flagCellId) {
-    const cx = CONFIG.ROOM_OUTER_W / 2;
-    const cy = CONFIG.ROOM_OUTER_H / 2;
-    const dist = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
-    if (dist < player.radius + 20) {
-      isVictory = true;
-
-      // 전체 활성 화면 및 방들의 전역 절대 좌표계 범위 계산
-      const minTop = screens.length > 0 ? Math.min(...screens.map(s => s.availTop)) : 0;
-      const maxBottom = screens.length > 0 ? Math.max(...screens.map(s => s.availTop + s.availHeight)) : CONFIG.ROOM_OUTER_H;
-      const minLeft = screens.length > 0 ? Math.min(...screens.map(s => s.availLeft)) : 0;
-      const maxRight = screens.length > 0 ? Math.max(...screens.map(s => s.availLeft + s.availWidth)) : CONFIG.ROOM_OUTER_W;
-
-      const cellsList = Array.from(cellMap.values());
-      const roomsMinTop = cellsList.length > 0 ? Math.min(...cellsList.map(c => c.rect.top)) : minTop;
-      const roomsMaxBottom = cellsList.length > 0 ? Math.max(...cellsList.map(c => c.rect.top + c.rect.height)) : maxBottom;
-
-      channel.send(MSG.VICTORY, {
-        winnerWinId: cellMap.get(player.cellId).winId,
-        globalBounds: {
-          minTop,
-          maxBottom,
-          minLeft,
-          maxRight,
-          roomsMinTop,
-          roomsMaxBottom,
-          totalHeight: maxBottom - minTop
-        },
-        startTime: Date.now()
-      });
-      return;
+  // 1. 황금 열쇠 획득 판정
+  if (!hasKey && player.cellId === keyCellId) {
+    const distToKey = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
+    if (distToKey < player.radius + 22) {
+      hasKey = true;
+      keyDiscovered = true;
+      console.log("[Master] 황금 열쇠 획득!");
+      channel.send(MSG.KEY_COLLECTED, { activeCellId: player.cellId });
     }
   }
 
-  // 2. 문 프롬프트 감지 (벽에 딱 붙지 않아도 10px 이내면 인식)
+  // 2. 잠긴 탈출문 도달 판정
+  if (player.cellId === exitCellId) {
+    exitDiscovered = true;
+    const distToExit = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
+    
+    if (distToExit < player.radius + 24) {
+      if (hasKey) {
+        // 승리! 탈출 성공!
+        isVictory = true;
+        console.log("[Master] 탈출 성공! Victory!");
+
+        const minTop = screens.length > 0 ? Math.min(...screens.map(s => s.availTop)) : 0;
+        const maxBottom = screens.length > 0 ? Math.max(...screens.map(s => s.availTop + s.availHeight)) : CONFIG.ROOM_OUTER_H;
+        const minLeft = screens.length > 0 ? Math.min(...screens.map(s => s.availLeft)) : 0;
+        const maxRight = screens.length > 0 ? Math.max(...screens.map(s => s.availLeft + s.availWidth)) : CONFIG.ROOM_OUTER_W;
+
+        const cellsList = Array.from(cellMap.values());
+        const roomsMinTop = cellsList.length > 0 ? Math.min(...cellsList.map(c => c.rect.top)) : minTop;
+        const roomsMaxBottom = cellsList.length > 0 ? Math.max(...cellsList.map(c => c.rect.top + c.rect.height)) : maxBottom;
+
+        channel.send(MSG.VICTORY, {
+          winnerWinId: cellMap.get(player.cellId).winId,
+          globalBounds: {
+            minTop, maxBottom, minLeft, maxRight,
+            roomsMinTop, roomsMaxBottom,
+            totalHeight: maxBottom - minTop
+          },
+          startTime: Date.now()
+        });
+        return;
+      } else {
+        // 열쇠 없이 접근 시: 1.5초마다 잠김 경고 전송
+        const now = Date.now();
+        if (now - lastLockedDoorNotify > 1500) {
+          lastLockedDoorNotify = now;
+          channel.send(MSG.DOOR_LOCKED, { activeCellId: player.cellId });
+        }
+      }
+    }
+  }
+
+  // 3. 백그라운드 몬스터 AI 갱신
+  updateMonsterAI();
+
+  // 4. 문 프롬프트 감지
   let hitDoor = null;
   const triggerMargin = 10;
 
@@ -436,11 +595,25 @@ setInterval(() => {
     channel.send(MSG.DOOR_PROMPT, { activeCellId: player.cellId, clear: true });
   }
 
+  // 30Hz 브로드캐스트 패킷 전송
   channel.send(MSG.TICK, {
     activeCellId: player.cellId,
     lx: player.lx,
     ly: player.ly,
     facing: player.facing,
+    isStunned: player.stunTimer > 0,
+    hasKey,
+    exitCellId,
+    keyCellId,
+    exitDiscovered,
+    keyDiscovered,
+    monster: {
+      cellId: monster.cellId,
+      lx: monster.lx,
+      ly: monster.ly,
+      facing: monster.facing,
+      state: monster.state
+    },
     tickCount: tickCount++,
     debugTime: Date.now()
   });

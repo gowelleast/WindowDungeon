@@ -28,32 +28,64 @@ function getFloorPattern(ctx) {
   pCanvas.height = 40;
   const pCtx = pCanvas.getContext('2d');
 
-  // 기본 석재 톤
-  pCtx.fillStyle = '#16191f';
+  pCtx.fillStyle = '#14171d';
   pCtx.fillRect(0, 0, 40, 40);
 
-  // 석재 타일 음영 및 틈새 (Mortar)
-  pCtx.strokeStyle = '#0b0d11';
+  pCtx.strokeStyle = '#090b0e';
   pCtx.lineWidth = 2;
   pCtx.strokeRect(0, 0, 40, 40);
 
-  // 상단/좌측 하이라이트 (빛 반사)
   pCtx.fillStyle = 'rgba(255, 255, 255, 0.035)';
   pCtx.fillRect(2, 2, 36, 1);
   pCtx.fillRect(2, 2, 1, 36);
 
-  // 하단/우측 그림자
-  pCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  pCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   pCtx.fillRect(2, 37, 36, 1);
   pCtx.fillRect(37, 2, 1, 36);
 
-  // 타일 표면 미세 스펙클 질감
   pCtx.fillStyle = 'rgba(255, 255, 255, 0.02)';
   pCtx.fillRect(8, 10, 14, 12);
   pCtx.fillRect(24, 22, 10, 8);
 
   floorPattern = ctx.createPattern(pCanvas, 'repeat');
   return floorPattern;
+}
+
+// ----------------------------------------------------
+// 🌟 플레이어 발자국 트레일 파티클 시스템
+// ----------------------------------------------------
+const footstepTrails = [];
+
+export function addFootstepTrail(x, y) {
+  footstepTrails.push({
+    x, y,
+    alpha: 0.65,
+    size: Math.random() * 3 + 2.5,
+    color: Math.random() > 0.4 ? '#34d399' : '#38bdf8'
+  });
+  if (footstepTrails.length > 35) {
+    footstepTrails.shift();
+  }
+}
+
+export function drawFootstepTrails(ctx) {
+  ctx.save();
+  for (let i = footstepTrails.length - 1; i >= 0; i--) {
+    const p = footstepTrails[i];
+    p.alpha -= 0.018;
+    if (p.alpha <= 0) {
+      footstepTrails.splice(i, 1);
+      continue;
+    }
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = p.alpha;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 4;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 /**
@@ -67,17 +99,20 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
   ctx.fillStyle = getFloorPattern(ctx);
   ctx.fillRect(0, 0, W, H);
 
-  // 2. 바닥 비네팅 (외곽으로 갈수록 자연스럽게 어두워짐)
+  // 2. 바닥 비네팅
   const floorVignette = ctx.createRadialGradient(CX, CY, 60, CX, CY, Math.max(W, H) / 1.5);
   floorVignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  floorVignette.addColorStop(1, 'rgba(5, 7, 10, 0.65)');
+  floorVignette.addColorStop(1, 'rgba(4, 6, 9, 0.7)');
   ctx.fillStyle = floorVignette;
   ctx.fillRect(0, 0, W, H);
 
-  // 3. 3D 입체 석벽 (Outer Wall)
+  // 3. 발자국 트레일 잔상 렌더링
+  drawFootstepTrails(ctx);
+
+  // 4. 3D 입체 석벽
   drawWalls(ctx);
 
-  // 4. 문(Doors / Runic Portals) 렌더링
+  // 5. 문(Doors) 렌더링
   if (roomData && roomData.doors) {
     roomData.doors.forEach(dir => {
       const isTarget = activePrompt && activePrompt.dir === dir && !activePrompt.clear;
@@ -85,27 +120,22 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
     });
   }
 
-  // 5. 벽면 횃불(Torches) 및 동적 불꽃 렌더링
+  // 6. 벽면 횃불
   getTorches(W, H).forEach(pos => {
     drawTorch(ctx, pos.x, pos.y, now);
   });
 }
 
-/**
- * 입체감 있는 석벽 테두리
- */
 function drawWalls(ctx) {
   const { W, H } = getDim(ctx);
 
-  // 벽 본체 (단단한 흑요석/다크 슬레이트 질감)
-  ctx.fillStyle = '#232832';
+  ctx.fillStyle = '#212631';
   ctx.fillRect(0, 0, W, WALL);
   ctx.fillRect(0, H - WALL, W, WALL);
   ctx.fillRect(0, 0, WALL, H);
   ctx.fillRect(W - WALL, 0, WALL, H);
 
-  // 벽 블록 구분선 (Masonry Blocks)
-  ctx.strokeStyle = '#15181e';
+  ctx.strokeStyle = '#13161c';
   ctx.lineWidth = 1.5;
   const blockSize = 40;
   for (let x = WALL; x < W - WALL; x += blockSize) {
@@ -121,20 +151,15 @@ function drawWalls(ctx) {
     ctx.stroke();
   }
 
-  // 벽 안쪽 하이라이트 베벨
-  ctx.strokeStyle = '#3d4554';
+  ctx.strokeStyle = '#394150';
   ctx.lineWidth = 1.5;
   ctx.strokeRect(WALL, WALL, W - WALL * 2, H - WALL * 2);
 
-  // 벽 바닥 쪽 드롭 섀도우 (입체 깊이감)
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fillRect(WALL, WALL, W - WALL * 2, 6);
   ctx.fillRect(WALL, WALL, 6, H - WALL * 2);
 }
 
-/**
- * 룬 문자 포탈 스타일의 문 렌더링
- */
 function drawDoor(ctx, dir, isTarget, now) {
   const { W, H, CX, CY } = getDim(ctx);
   ctx.save();
@@ -150,12 +175,10 @@ function drawDoor(ctx, dir, isTarget, now) {
     x = W - WALL - 4; y = CY - DOOR_W / 2; w = WALL + 4; h = DOOR_W;
   }
 
-  // 1. 문 통로 깊은 심연 보이드
-  ctx.fillStyle = '#06080e';
+  ctx.fillStyle = '#05070c';
   ctx.fillRect(x, y, w, h);
 
-  // 2. 포탈 에너지 라인 & 펄스 효과
-  const pulse = Math.sin(now / 180) * 0.3 + 0.7; // 0.4 ~ 1.0
+  const pulse = Math.sin(now / 180) * 0.3 + 0.7;
   const colorRune = isTarget ? `rgba(56, 189, 248, ${pulse})` : 'rgba(56, 189, 248, 0.4)';
   const glowBlur = isTarget ? 15 : 6;
 
@@ -164,7 +187,6 @@ function drawDoor(ctx, dir, isTarget, now) {
   ctx.strokeStyle = colorRune;
   ctx.lineWidth = isTarget ? 3.5 : 2;
 
-  // 문 출입선 (임계선)
   ctx.beginPath();
   if (dir === 'up') {
     ctx.moveTo(x, WALL); ctx.lineTo(x + w, WALL);
@@ -177,7 +199,6 @@ function drawDoor(ctx, dir, isTarget, now) {
   }
   ctx.stroke();
 
-  // 3. 문 좌우 기둥 룬스톤 (Pillars)
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#475569';
   if (dir === 'up' || dir === 'down') {
@@ -188,7 +209,6 @@ function drawDoor(ctx, dir, isTarget, now) {
     ctx.fillRect(x, y + h, w, 4);
   }
 
-  // 4. 활성화 상태일 때 방 안으로 흘러나오는 빛줄기
   if (isTarget) {
     const energyGradient = (dir === 'up') ? ctx.createLinearGradient(CX, WALL, CX, WALL + 35) :
       (dir === 'down') ? ctx.createLinearGradient(CX, H - WALL, CX, H - WALL - 35) :
@@ -208,21 +228,14 @@ function drawDoor(ctx, dir, isTarget, now) {
   ctx.restore();
 }
 
-/**
- * 벽면 횃불 렌더링
- */
 function drawTorch(ctx, tx, ty, now) {
   ctx.save();
-
-  // 1. 횃불 브래킷 (쇠 받침대)
   ctx.fillStyle = '#475569';
   ctx.fillRect(tx - 3, ty - 3, 6, 6);
 
-  // 2. 동적 불꽃 흔들림
   const flicker = Math.sin(now / 70 + tx) * 2;
   const flameH = 10 + Math.cos(now / 90) * 2.5;
 
-  // 은은한 주황색 횃불 조명 반경
   const torchLight = ctx.createRadialGradient(tx, ty, 3, tx, ty, 55);
   torchLight.addColorStop(0, 'rgba(251, 146, 60, 0.22)');
   torchLight.addColorStop(0.5, 'rgba(245, 158, 11, 0.08)');
@@ -232,7 +245,6 @@ function drawTorch(ctx, tx, ty, now) {
   ctx.arc(tx, ty, 55, 0, Math.PI * 2);
   ctx.fill();
 
-  // 3. 불꽃 코어
   ctx.shadowColor = '#f59e0b';
   ctx.shadowBlur = 8;
   ctx.fillStyle = '#ffedd5';
@@ -248,81 +260,208 @@ function drawTorch(ctx, tx, ty, now) {
   ctx.restore();
 }
 
-/**
- * 🚩 황금 제단 및 부유 깃발 렌더링
- */
-export function drawFlag(ctx, cx, cy) {
+// ----------------------------------------------------
+// 🔑 1. 부유하는 황금 열쇠 렌더링 (Floating Golden Key)
+// ----------------------------------------------------
+export function drawKey(ctx, cx, cy) {
   const dim = getDim(ctx);
   const targetCx = cx !== undefined ? cx : dim.CX;
   const targetCy = cy !== undefined ? cy : dim.CY;
   const now = Date.now();
   ctx.save();
 
-  // 1. 바닥 고대 마법진 (Runic Altar)
-  const pulse = Math.sin(now / 300) * 0.15 + 0.85;
-  ctx.strokeStyle = `rgba(245, 158, 11, ${pulse * 0.5})`;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
-  ctx.stroke();
+  const hoverY = Math.sin(now / 220) * 6;
+  const keyY = targetCy + hoverY;
 
-  ctx.strokeStyle = `rgba(250, 204, 21, ${pulse * 0.3})`;
+  // 바닥 그림자
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
   ctx.beginPath();
-  ctx.arc(targetCx, targetCy, 26, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // 2. 깃발 공중 부유 (Floating Bobbing)
-  const hoverY = Math.sin(now / 220) * 7;
-  const flagY = targetCy + hoverY;
-
-  // 바닥 그림자 (높이에 따라 크기 변화)
-  const shadowRadius = Math.max(10, 22 - hoverY);
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-  ctx.beginPath();
-  ctx.ellipse(targetCx, targetCy + 24, shadowRadius, shadowRadius * 0.45, 0, 0, Math.PI * 2);
+  ctx.ellipse(targetCx, targetCy + 22, 18, 8, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // 3. 깃대 (Golden Staff)
-  ctx.shadowColor = '#f59e0b';
-  ctx.shadowBlur = 12;
-
-  ctx.fillStyle = '#fbbf24';
-  ctx.fillRect(targetCx - 2, flagY - 28, 4, 48);
-
-  // 깃대 상단 황금 보주
-  ctx.fillStyle = '#fef08a';
-  ctx.beginPath();
-  ctx.arc(targetCx, flagY - 30, 5, 0, Math.PI * 2);
-  ctx.fill();
-
-  // 4. 휘날리는 붉은 비단 깃발 (Crimson Banner)
-  const wave = Math.sin(now / 160) * 4;
-  ctx.fillStyle = '#ef4444';
-  ctx.beginPath();
-  ctx.moveTo(targetCx + 2, flagY - 28);
-  ctx.lineTo(targetCx + 34 + wave, flagY - 18);
-  ctx.lineTo(targetCx + 2, flagY - 8);
-  ctx.closePath();
-  ctx.fill();
-
-  // 깃발 테두리 골드 라인
-  ctx.strokeStyle = '#fef08a';
+  // 황금 발광 룬 링 (회전)
+  const angle = (now / 700);
+  ctx.strokeStyle = 'rgba(250, 204, 21, 0.45)';
   ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(targetCx, keyY, 26, angle, angle + Math.PI * 1.5);
   ctx.stroke();
 
-  // 5. 공중 반짝이 파티클 (Sparkles)
-  for (let i = 0; i < 4; i++) {
-    const angle = (now / 600) + (i * Math.PI / 2);
-    const dist = 32 + Math.sin(now / 300 + i) * 6;
-    const px = cx + Math.cos(angle) * dist;
-    const py = cy + Math.sin(angle) * (dist * 0.6) + hoverY;
+  // 황금 열쇠 본체
+  ctx.shadowColor = '#facc15';
+  ctx.shadowBlur = 15;
 
-    ctx.fillStyle = '#fde047';
-    ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 6;
+  // 열쇠 손잡이 링
+  ctx.strokeStyle = '#fef08a';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(targetCx - 6, keyY - 6, 9, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 열쇠 자루
+  ctx.fillStyle = '#fef08a';
+  ctx.fillRect(targetCx, keyY - 4, 18, 4);
+
+  // 열쇠 이빨
+  ctx.fillRect(targetCx + 12, keyY, 3, 5);
+  ctx.fillRect(targetCx + 16, keyY, 3, 7);
+
+  // 반짝이는 스파크 파티클
+  for (let i = 0; i < 3; i++) {
+    const spAngle = (now / 500) + (i * Math.PI * 2 / 3);
+    const spDist = 18 + Math.sin(now / 200 + i) * 4;
+    ctx.fillStyle = '#fffbeb';
     ctx.beginPath();
-    ctx.arc(px, py, 2, 0, Math.PI * 2);
+    ctx.arc(targetCx + Math.cos(spAngle) * spDist, keyY + Math.sin(spAngle) * spDist, 1.8, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  // 상단 라벨
+  ctx.font = 'bold 12px "Outfit", sans-serif';
+  ctx.fillStyle = '#fde047';
+  ctx.textAlign = 'center';
+  ctx.shadowBlur = 6;
+  ctx.fillText('황금 열쇠', targetCx, keyY - 32);
+
+  ctx.restore();
+}
+
+// ----------------------------------------------------
+// 🚪 2. 고대 탈출문 렌더링 (Locked / Unlocked Ancient Portal)
+// ----------------------------------------------------
+export function drawExitPortal(ctx, hasKey, cx, cy) {
+  const dim = getDim(ctx);
+  const targetCx = cx !== undefined ? cx : dim.CX;
+  const targetCy = cy !== undefined ? cy : dim.CY;
+  const now = Date.now();
+  ctx.save();
+
+  // 1. 고대 포탈 기단 마법진
+  const pulse = Math.sin(now / 250) * 0.2 + 0.8;
+  const ringColor = hasKey ? `rgba(234, 179, 8, ${pulse})` : `rgba(239, 68, 68, ${pulse * 0.7})`;
+
+  ctx.strokeStyle = ringColor;
+  ctx.lineWidth = 3;
+  ctx.shadowColor = hasKey ? '#eab308' : '#ef4444';
+  ctx.shadowBlur = 16;
+  ctx.beginPath();
+  ctx.arc(targetCx, targetCy, 42, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 2. 포탈 중앙 소용돌이
+  if (hasKey) {
+    // [열쇠 소지]: 황금빛 활성화 포탈
+    const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 5, targetCx, targetCy, 38);
+    portalGrad.addColorStop(0, '#ffffff');
+    portalGrad.addColorStop(0.3, 'rgba(250, 204, 21, 0.85)');
+    portalGrad.addColorStop(0.7, 'rgba(234, 179, 8, 0.5)');
+    portalGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = portalGrad;
+    ctx.beginPath();
+    ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 탈출 안내
+    ctx.font = 'bold 13px "Outfit", sans-serif';
+    ctx.fillStyle = '#fef08a';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 8;
+    ctx.fillText('✨ 탈출구 개방됨!', targetCx, targetCy - 52);
+    ctx.font = '600 11px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('[SPACE]로 탈출', targetCx, targetCy + 56);
+  } else {
+    // [열쇠 미소지]: 붉은 봉인 사슬 및 자물쇠 홀로그램
+    const lockedGrad = ctx.createRadialGradient(targetCx, targetCy, 5, targetCx, targetCy, 38);
+    lockedGrad.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
+    lockedGrad.addColorStop(0.8, 'rgba(153, 27, 27, 0.45)');
+    lockedGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = lockedGrad;
+    ctx.beginPath();
+    ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 🔒 자물쇠 아이콘 그리기
+    ctx.font = '28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🔒', targetCx, targetCy);
+
+    // 봉인 텍스트
+    ctx.font = 'bold 12px "Outfit", sans-serif';
+    ctx.fillStyle = '#f87171';
+    ctx.shadowBlur = 6;
+    ctx.fillText('봉인된 탈출문', targetCx, targetCy - 50);
+    ctx.font = '500 10.5px sans-serif';
+    ctx.fillStyle = '#fca5a5';
+    ctx.fillText('황금 열쇠 필요', targetCx, targetCy + 52);
+  }
+
+  ctx.restore();
+}
+
+// ----------------------------------------------------
+// 👾 3. 그림자 순찰 몬스터 렌더링 (Shadow Monster)
+// ----------------------------------------------------
+export function drawMonster(ctx, monster) {
+  if (!monster) return;
+  const { lx, ly, facing, state } = monster;
+  const radius = monster.radius || 16;
+  const now = Date.now();
+  ctx.save();
+
+  // 바닥 다크 오라 그림자
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+  ctx.beginPath();
+  ctx.ellipse(lx, ly + radius - 2, radius * 1.3, radius * 0.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 1. 외곽 검붉은 암흑 아우라 파티클
+  const isChasing = state === 'chasing';
+  const pulse = Math.sin(now / 120) * 3;
+  ctx.shadowColor = isChasing ? '#ef4444' : '#8b5cf6';
+  ctx.shadowBlur = isChasing ? 18 : 10;
+
+  // 본체 (불길한 어둠의 구체)
+  ctx.fillStyle = isChasing ? '#450a0a' : '#1e1b4b';
+  ctx.beginPath();
+  ctx.arc(lx, ly, radius + pulse * 0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = isChasing ? '#7f1d1d' : '#312e81';
+  ctx.beginPath();
+  ctx.arc(lx, ly, radius * 0.75, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 2. 번뜩이는 붉은 악마의 눈빛 (Glowing Eyes)
+  let eyeOffsetX = 0, eyeOffsetY = 0;
+  if (facing === 'up') eyeOffsetY = -3;
+  else if (facing === 'down') eyeOffsetY = 3;
+  else if (facing === 'left') eyeOffsetX = -3;
+  else if (facing === 'right') eyeOffsetX = 3;
+
+  ctx.shadowColor = '#ff0000';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#fca5a5';
+
+  // 왼쪽 눈
+  ctx.beginPath();
+  ctx.ellipse(lx - 5 + eyeOffsetX, ly - 2 + eyeOffsetY, 3, 4, 0.1, 0, Math.PI * 2);
+  ctx.fill();
+  // 오른쪽 눈
+  ctx.beginPath();
+  ctx.ellipse(lx + 5 + eyeOffsetX, ly - 2 + eyeOffsetY, 3, 4, -0.1, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 3. 추적 모드 시 머리 위 ❗ 경고 마커
+  if (isChasing) {
+    const alertY = ly - radius - 16 + Math.sin(now / 90) * 2;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillStyle = '#ef4444';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff0000';
+    ctx.shadowBlur = 10;
+    ctx.fillText('❗', lx, alertY);
   }
 
   ctx.restore();
@@ -332,38 +471,46 @@ export function drawFlag(ctx, cx, cy) {
  * 탐험가(플레이어) 렌더링
  */
 export function drawPlayer(ctx, playerState) {
-  const { lx, ly, facing } = playerState;
+  const { lx, ly, facing, isStunned } = playerState;
   const radius = playerState.radius || 15;
   const now = Date.now();
 
   ctx.save();
 
-  // 1. 바닥 발밑 그림자
+  // 스턴 피격 시 깜빡임 연출
+  if (isStunned && Math.floor(now / 60) % 2 === 0) {
+    ctx.globalAlpha = 0.4;
+  }
+
+  // 1. 발자국 트레일 생성 (이동 중일 때)
+  if (playerState.vx !== 0 || playerState.vy !== 0) {
+    addFootstepTrail(lx, ly + radius - 2);
+  }
+
+  // 2. 바닥 발밑 그림자
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
   ctx.ellipse(lx, ly + radius - 2, radius * 1.1, radius * 0.45, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // 2. 랜턴 전방 조명 빔 (Sight Cone / Lantern Light)
+  // 3. 랜턴 전방 조명 빔
   drawLanternBeam(ctx, lx, ly, facing);
 
-  // 3. 플레이어 본체 (신비로운 모험가 아바타)
-  // 외투/아머 베이스
-  ctx.shadowColor = '#10b981';
+  // 4. 플레이어 본체
+  ctx.shadowColor = isStunned ? '#f87171' : '#10b981';
   ctx.shadowBlur = 10;
-  ctx.fillStyle = '#059669';
+  ctx.fillStyle = isStunned ? '#b91c1c' : '#059669';
   ctx.beginPath();
   ctx.arc(lx, ly, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  // 이너 코어 (에메랄드/크리스탈)
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#34d399';
+  ctx.fillStyle = isStunned ? '#fca5a5' : '#34d399';
   ctx.beginPath();
   ctx.arc(lx, ly, radius * 0.7, 0, Math.PI * 2);
   ctx.fill();
 
-  // 4. 시선 방향 지시자 (날렵한 발광 쉐브론 조준선)
+  // 5. 시선 방향 지시선
   let dx = 0, dy = 0;
   if (facing === 'up') dy = -1;
   else if (facing === 'down') dy = 1;
@@ -378,7 +525,6 @@ export function drawPlayer(ctx, playerState) {
   ctx.lineTo(lx + dx * (radius + 8), ly + dy * (radius + 8));
   ctx.stroke();
 
-  // 바이저 발광 점
   ctx.fillStyle = '#f8fafc';
   ctx.shadowColor = '#ffffff';
   ctx.shadowBlur = 8;
@@ -389,9 +535,6 @@ export function drawPlayer(ctx, playerState) {
   ctx.restore();
 }
 
-/**
- * 플레이어 전방 횃불/랜턴 조명 원추(Cone)
- */
 function drawLanternBeam(ctx, lx, ly, facing) {
   let angle = 0;
   if (facing === 'right') angle = 0;
@@ -399,8 +542,8 @@ function drawLanternBeam(ctx, lx, ly, facing) {
   else if (facing === 'left') angle = Math.PI;
   else if (facing === 'up') angle = -Math.PI / 2;
 
-  const beamLength = 90;
-  const fov = Math.PI / 3.2; // 약 56도
+  const beamLength = 95;
+  const fov = Math.PI / 3.2;
 
   const lightGrad = ctx.createRadialGradient(lx, ly, 10, lx, ly, beamLength);
   lightGrad.addColorStop(0, 'rgba(254, 240, 138, 0.28)');
@@ -416,26 +559,63 @@ function drawLanternBeam(ctx, lx, ly, facing) {
 }
 
 /**
- * 방 전체의 던전 분위기 조명 (Vignette & Fog of War)
+ * 방 전체 던전 조명 (다이나믹 비네팅)
  */
 export function drawDungeonLighting(ctx, playerState = null) {
   const { W, H } = getDim(ctx);
   ctx.save();
-  // 플레이어가 현재 방에 있는 경우
   if (playerState) {
     const { lx, ly } = playerState;
-    const ambientDarkness = ctx.createRadialGradient(lx, ly, 45, lx, ly, 230);
+    const ambientDarkness = ctx.createRadialGradient(lx, ly, 45, lx, ly, 240);
     ambientDarkness.addColorStop(0, 'rgba(4, 6, 9, 0)');
-    ambientDarkness.addColorStop(0.7, 'rgba(4, 6, 9, 0.35)');
-    ambientDarkness.addColorStop(1, 'rgba(4, 6, 9, 0.7)');
+    ambientDarkness.addColorStop(0.65, 'rgba(4, 6, 9, 0.35)');
+    ambientDarkness.addColorStop(1, 'rgba(4, 6, 9, 0.75)');
 
     ctx.fillStyle = ambientDarkness;
     ctx.fillRect(0, 0, W, H);
   } else {
-    // 플레이어가 없는 방 (어두운 배경 대기 모드)
-    ctx.fillStyle = 'rgba(4, 6, 9, 0.45)';
+    ctx.fillStyle = 'rgba(4, 6, 9, 0.48)';
     ctx.fillRect(0, 0, W, H);
   }
+  ctx.restore();
+}
+
+/**
+ * 상단 HUD 오버레이 (열쇠 소지 현황 및 음향 안내)
+ */
+export function drawHUD(ctx, hasKey, isMuted) {
+  const { W } = getDim(ctx);
+  ctx.save();
+
+  // 1. 좌상단: 열쇠 소지 상태 배지
+  const badgeW = 95;
+  const badgeH = 26;
+  const badgeX = 26;
+  const badgeY = 26;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  ctx.strokeStyle = hasKey ? '#eab308' : '#475569';
+  ctx.lineWidth = 1.5;
+  ctx.shadowColor = hasKey ? '#eab308' : 'transparent';
+  ctx.shadowBlur = hasKey ? 8 : 0;
+  roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 11.5px "JetBrains Mono", monospace';
+  ctx.fillStyle = hasKey ? '#fef08a' : '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE', badgeX + badgeW / 2, badgeY + badgeH / 2);
+
+  // 2. 우상단: 사운드 상태 힌트
+  const soundText = isMuted ? '🔇 MUTE' : '🔊 SFX ON';
+  ctx.font = '10.5px monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'right';
+  ctx.fillText(soundText, W - 28, 42);
+
   ctx.restore();
 }
 
@@ -451,14 +631,12 @@ export function drawPrompt(ctx, promptData) {
   const boxX = CX - boxW / 2;
   const boxY = CY - boxH / 2;
 
-  // 1. 글래스모피즘 어두운 패널
   ctx.fillStyle = 'rgba(11, 14, 20, 0.9)';
   ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
   ctx.shadowBlur = 20;
   roundRect(ctx, boxX, boxY, boxW, boxH, 10);
   ctx.fill();
 
-  // 2. 네온 오라 보더
   ctx.shadowBlur = 8;
   if (promptData.willOpenNew) {
     ctx.strokeStyle = '#38bdf8';
@@ -471,7 +649,6 @@ export function drawPrompt(ctx, promptData) {
   roundRect(ctx, boxX, boxY, boxW, boxH, 10);
   ctx.stroke();
 
-  // 3. 키캡 배지 [ SPACE ]
   ctx.shadowBlur = 0;
   const keyW = 80;
   const keyH = 22;
@@ -492,7 +669,6 @@ export function drawPrompt(ctx, promptData) {
   ctx.textBaseline = 'middle';
   ctx.fillText('SPACE', CX, keyY + keyH / 2);
 
-  // 4. 타이틀 텍스트: 방 이동
   ctx.font = '600 14px "Outfit", sans-serif';
   ctx.fillStyle = '#ffffff';
   ctx.fillText('방 이동', CX, boxY + 50);
@@ -500,9 +676,6 @@ export function drawPrompt(ctx, promptData) {
   ctx.restore();
 }
 
-/**
- * 둥근 사각형 헬퍼 함수
- */
 function roundRect(ctx, x, y, width, height, radius) {
   ctx.beginPath();
   ctx.moveTo(x + radius, y);

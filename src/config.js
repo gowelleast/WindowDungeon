@@ -12,6 +12,8 @@ export const CONFIG = {
   ENABLE_WALL_BOUNCE: true, // 벽 충돌 시 탄성 반동 적용 여부
   WALL_BOUNCE_STRENGTH: 2, // 충돌 순간 넉백 세기 (충돌 속도 대비 배수)
   WALL_BOUNCE_DECAY: 0.6, // 넉백 속도의 tick당 감쇠율 (0~1, 작을수록 빨리 멈춤)
+  MONSTER_SPEED: 2.5, // 몬스터 추적 속도 (px/tick)
+  MONSTER_WANDER_SPEED: 1.5, // 몬스터 평상시 순찰 속도 (px/tick)
 };
 
 /**

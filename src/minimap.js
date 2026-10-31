@@ -353,7 +353,6 @@ function drawMinimap() {
   const totalW = maxX - minX;
   const totalH = maxY - minY;
   
-  // 캔버스 크기에 맞게 스케일 계산 (여백 24px)
   const padding = 24;
   const scale = Math.min(
     (canvas.width - padding * 2) / totalW,
@@ -377,32 +376,26 @@ function drawMinimap() {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
   }
 
-  // 2. 모니터(Screen) 하우징 그리기
+  // 2. 모니터 하우징 그리기
   for (const s of screens) {
     const dx = offsetX + (s.availLeft - minX) * scale;
     const dy = offsetY + (s.availTop - minY) * scale;
     const dw = s.availWidth * scale;
     const dh = s.availHeight * scale;
 
-    // 모니터 내부 배경
     ctx.fillStyle = '#11151f';
     ctx.fillRect(dx, dy, dw, dh);
 
-    // 모니터 외곽선
     ctx.strokeStyle = s.isPrimary ? '#38bdf8' : '#334155';
     ctx.lineWidth = 1.5;
     ctx.strokeRect(dx, dy, dw, dh);
 
-    // 모니터 코너 브래킷 악센트
     const corner = 6;
     ctx.strokeStyle = s.isPrimary ? '#7dd3fc' : '#64748b';
     ctx.lineWidth = 2;
-    // 좌상단
     ctx.beginPath(); ctx.moveTo(dx, dy + corner); ctx.lineTo(dx, dy); ctx.lineTo(dx + corner, dy); ctx.stroke();
-    // 우상단
     ctx.beginPath(); ctx.moveTo(dx + dw - corner, dy); ctx.lineTo(dx + dw, dy); ctx.lineTo(dx + dw, dy + corner); ctx.stroke();
 
-    // 텍스트 라벨
     ctx.fillStyle = s.isPrimary ? '#bae6fd' : '#94a3b8';
     ctx.font = 'bold 11px "Outfit", sans-serif';
     ctx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 8, dy + 16);
@@ -422,16 +415,13 @@ function drawMinimap() {
     const dw = rect.width * scale;
     const dh = rect.height * scale;
 
-    // 방 내부 타일 바닥
     ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
     ctx.fillRect(dx, dy, dw, dh);
 
-    // 방 테두리
     ctx.strokeStyle = '#10b981';
     ctx.lineWidth = 1.2;
     ctx.strokeRect(dx, dy, dw, dh);
 
-    // 문 출입구 표시 (도어 노치)
     if (cell.doors) {
       ctx.fillStyle = '#38bdf8';
       const notchW = dw * 0.2;
@@ -444,17 +434,68 @@ function drawMinimap() {
       });
     }
 
-    // 깃발 방 표시
-    if (cell.hasFlag) {
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = '12px sans-serif';
+    // 🚪 발견된 탈출문 아이콘 마킹 (미니맵 핵심 연계)
+    if (player && player.exitDiscovered && player.exitCellId === cell.id) {
+      ctx.fillStyle = player.hasKey ? '#eab308' : '#ef4444';
+      ctx.font = 'bold 13px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('🚩', dx + dw / 2, dy + dh / 2 + 4);
+      ctx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
+      ctx.textAlign = 'left';
+    }
+
+    // 🔑 발견된 황금 열쇠 아이콘 마킹
+    if (player && player.keyDiscovered && !player.hasKey && player.keyCellId === cell.id) {
+      ctx.fillStyle = '#facc15';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
       ctx.textAlign = 'left';
     }
   }
 
-  // 4. 플레이어 실시간 레이더 핑(Ping) 그리기
+  // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 렌더링 (미개척 방이라도 표시!)
+  if (player && player.monster && player.monster.cellId) {
+    const m = player.monster;
+    const parts = m.cellId.split('-');
+    const mGy = parseInt(parts.pop(), 10);
+    const mGx = parseInt(parts.pop(), 10);
+    const mLabel = parts.join('-');
+    const s = screens.find(sc => sc.label === mLabel);
+
+    if (s) {
+      const rect = cellToScreenRect(s, mGx, mGy, CONFIG);
+      const mx = rect.left + m.lx;
+      const my = rect.top + m.ly;
+
+      const mdx = offsetX + (mx - minX) * scale;
+      const mdy = offsetY + (my - minY) * scale;
+
+      ctx.save();
+      // 몬스터 붉은 레이더 펄스
+      const mPulse = (now % 800) / 800;
+      ctx.strokeStyle = `rgba(239, 68, 68, ${1 - mPulse})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(mdx, mdy, 3 + mPulse * 12, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 몬스터 아이콘 점
+      ctx.fillStyle = '#ef4444';
+      ctx.shadowColor = '#dc2626';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(mdx, mdy, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 라벨
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('👾', mdx, mdy - 6);
+      ctx.restore();
+    }
+  }
+
+  // 5. 🟢 플레이어 실시간 레이더 핑(Ping) 그리기
   if (player && cellMap.has(player.activeCellId)) {
     const cell = cellMap.get(player.activeCellId);
     const s = screens.find(sc => sc.label === cell.screenLabel);
@@ -466,8 +507,7 @@ function drawMinimap() {
       const pdx = offsetX + (px - minX) * scale;
       const pdy = offsetY + (py - minY) * scale;
 
-      // 레이더 펄스 파동 (Expanding Radar Ring)
-      const pulseProgress = (now % 1200) / 1200; // 0 ~ 1
+      const pulseProgress = (now % 1200) / 1200;
       const pulseR = 4 + pulseProgress * 14;
       const pulseAlpha = 1 - pulseProgress;
 
@@ -478,7 +518,6 @@ function drawMinimap() {
       ctx.arc(pdx, pdy, pulseR, 0, Math.PI * 2);
       ctx.stroke();
 
-      // 플레이어 중심 점 (밝은 에메랄드)
       ctx.fillStyle = '#34d399';
       ctx.shadowColor = '#10b981';
       ctx.shadowBlur = 8;
@@ -488,4 +527,11 @@ function drawMinimap() {
       ctx.restore();
     }
   }
+
+  // 6. 하단 범례 (Legend)
+  ctx.save();
+  ctx.font = '10px "JetBrains Mono", monospace';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 12, canvas.height - 10);
+  ctx.restore();
 }
