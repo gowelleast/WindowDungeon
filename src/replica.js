@@ -23,11 +23,16 @@ if (!winId || winId === '') {
 }
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
 
-// 해상도에 맞춘 동적 방 크기(w, h) 적용
+// 해상도에 맞춘 동적 방 크기(w, h) 및 사운드 음소거 상태 동기화 적용
 const dynamicW = parseInt(hashParams.get('w'), 10) || CONFIG.ROOM_OUTER_W;
 const dynamicH = parseInt(hashParams.get('h'), 10) || CONFIG.ROOM_OUTER_H;
 CONFIG.ROOM_OUTER_W = dynamicW;
 CONFIG.ROOM_OUTER_H = dynamicH;
+
+const isMutedParam = hashParams.get('muted');
+if (isMutedParam !== null) {
+  sound.setMute(isMutedParam === '1');
+}
 
 window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
@@ -81,6 +86,9 @@ channel.on(MSG.ASSIGN, (data) => {
     isExitRoom = !!data.isExitRoom;
     isKeyRoom = !!data.isKeyRoom;
     hasKey = !!data.hasKey;
+    if (data.isMuted !== undefined) {
+      sound.setMute(data.isMuted);
+    }
 
     requestAnimationFrame(() => {
       drawRoom(ctx, roomData);
@@ -238,7 +246,7 @@ window.addEventListener('keydown', (e) => {
       actualRect = { left: targetLeft, top: targetTop, width: w, height: h };
 
       const features = `popup=yes,resizable=no,width=${w},height=${h},left=${targetLeft},top=${targetTop}`;
-      window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}`, targetWinId, features);
+      window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}&muted=${sound.isMuted ? 1 : 0}`, targetWinId, features);
     } else {
       const win = window.open('', currentPrompt.targetWinId);
       if (win) win.focus();
@@ -301,7 +309,6 @@ channel.on(MSG.VICTORY, (data) => {
     modal.innerHTML = `
       <div class="victory-icon">🏆</div>
       <h1 class="victory-modal-title">DUNGEON CLEARED!</h1>
-      <div style="font-size: 15px; color: #fef08a; margin-bottom: 12px; font-weight: 600;">탈출 포탈 개방 성공!</div>
       <div class="victory-modal-instruction">Press [Space] to close all windows</div>
     `;
     document.body.appendChild(modal);

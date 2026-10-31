@@ -25,6 +25,7 @@ let exitCellId = null;
 let keyCellId = null;
 let exitDiscovered = false;
 let keyDiscovered = false;
+let isMuted = false;
 
 // 백그라운드 순찰 & 추적 몬스터 상태
 const monster = {
@@ -278,7 +279,8 @@ channel.on(MSG.HELLO, (data) => {
           ...c,
           isExitRoom: (c.id === exitCellId),
           isKeyRoom: (c.id === keyCellId),
-          hasKey
+          hasKey,
+          isMuted
         });
       }
     } else {
@@ -287,6 +289,10 @@ channel.on(MSG.HELLO, (data) => {
   } catch (error) {
     console.error("[Master] Error in HELLO handler:", error);
   }
+});
+
+channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
+  isMuted = !!data.isMuted;
 });
 
 channel.on(MSG.DOOR_CONFIRM, (data) => {

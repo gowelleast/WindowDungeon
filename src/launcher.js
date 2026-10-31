@@ -37,9 +37,19 @@ if (isMobileDevice) {
   }
 }
 
-// 런처 사운드 토글 버튼 바인딩
+// 시작 카드 인터랙티브 스포트라이트 이벤트 바인딩
+document.querySelectorAll('.start-card').forEach((card) => {
+  card.addEventListener('mousemove', (e) => {
+    const rect = card.getBoundingClientRect();
+    card.style.setProperty('--mouse-x', `${e.clientX - rect.left}px`);
+    card.style.setProperty('--mouse-y', `${e.clientY - rect.top}px`);
+  });
+});
+
+// 런처 사운드 토글 버튼 바인딩 및 전역 동기화
 const btnLauncherMute = document.getElementById('btn-launcher-mute');
 if (btnLauncherMute) {
+  btnLauncherMute.textContent = sound.isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
   btnLauncherMute.addEventListener('click', () => {
     sound.init();
     const isMuted = sound.toggleMute();
@@ -47,6 +57,13 @@ if (btnLauncherMute) {
     channel.send(MSG.SOUND_MUTE_SYNC, { isMuted });
   });
 }
+
+channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
+  sound.setMute(data.isMuted);
+  if (btnLauncherMute) {
+    btnLauncherMute.textContent = data.isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+  }
+});
 
 // 한 게임 세션 동안 등록한 구독/리스너의 정리 함수 목록.
 let sessionDisposers = [];
@@ -148,7 +165,7 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   // 동기적 유저 제스처 내에서 첫 번째 팝업(로비 방) 열기
   // popup=yes 파라미터를 명시하여 탭이 아닌 무조건 팝업으로 열리게 강제합니다.
   const features = `popup=yes,resizable=no,width=${roomW},height=${roomH},left=${left},top=${top}`;
-  const popup = window.open(`./room.html#winId=lobby&w=${roomW}&h=${roomH}`, 'lobby', features);
+  const popup = window.open(`./room.html#winId=lobby&w=${roomW}&h=${roomH}&muted=${sound.isMuted ? 1 : 0}`, 'lobby', features);
   if (!popup) {
     alert('브라우저에서 팝업이 차단되었습니다. 주소창 우측에서 팝업을 허용해주세요!');
     return;

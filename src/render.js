@@ -325,42 +325,125 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
   const now = Date.now();
   ctx.save();
 
-  // 1. 고대 포탈 기단 마법진
-  const pulse = Math.sin(now / 250) * 0.2 + 0.8;
-  const ringColor = hasKey ? `rgba(234, 179, 8, ${pulse})` : `rgba(239, 68, 68, ${pulse * 0.7})`;
+  // 1. 고대 포탈 기단 외곽 룬 링
+  const pulse = Math.sin(now / 250) * 0.15 + 0.85;
+  const ringColor = hasKey ? `rgba(250, 204, 21, ${pulse})` : `rgba(239, 68, 68, ${pulse * 0.7})`;
 
   ctx.strokeStyle = ringColor;
-  ctx.lineWidth = 3;
-  ctx.shadowColor = hasKey ? '#eab308' : '#ef4444';
-  ctx.shadowBlur = 16;
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = hasKey ? '#f59e0b' : '#ef4444';
+  ctx.shadowBlur = 18;
   ctx.beginPath();
-  ctx.arc(targetCx, targetCy, 42, 0, Math.PI * 2);
+  ctx.arc(targetCx, targetCy, 44, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 2. 포탈 중앙 소용돌이
+  // 외곽 마법 눈금 (부드러운 회전 링)
+  const outerSpin = now * 0.0008;
+  ctx.save();
+  ctx.translate(targetCx, targetCy);
+  ctx.rotate(hasKey ? outerSpin : outerSpin * 0.3);
+  ctx.strokeStyle = hasKey ? 'rgba(254, 240, 138, 0.45)' : 'rgba(248, 113, 113, 0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4, 6]);
+  ctx.beginPath();
+  ctx.arc(0, 0, 40, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // 2. 포탈 중앙 회오리 소용돌이 (Vortex Effect)
   if (hasKey) {
-    // [열쇠 소지]: 황금빛 활성화 포탈
-    const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 5, targetCx, targetCy, 38);
+    // 🌟 [열쇠 소지]: 황금빛 시공간 회오리 소용돌이
+
+    // (1) 포탈 심연 배경 방사형 그라데이션
+    const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 3, targetCx, targetCy, 38);
     portalGrad.addColorStop(0, '#ffffff');
-    portalGrad.addColorStop(0.3, 'rgba(250, 204, 21, 0.85)');
-    portalGrad.addColorStop(0.7, 'rgba(234, 179, 8, 0.5)');
-    portalGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    portalGrad.addColorStop(0.2, '#fef08a');
+    portalGrad.addColorStop(0.45, '#f59e0b');
+    portalGrad.addColorStop(0.8, '#78350f');
+    portalGrad.addColorStop(1, 'rgba(15, 23, 42, 0.2)');
     ctx.fillStyle = portalGrad;
     ctx.beginPath();
     ctx.arc(targetCx, targetCy, 38, 0, Math.PI * 2);
     ctx.fill();
 
-    // 탈출 안내
-    ctx.font = 'bold 13px "Outfit", sans-serif';
-    ctx.fillStyle = '#fef08a';
-    ctx.textAlign = 'center';
-    ctx.shadowBlur = 8;
-    ctx.fillText('✨ 탈출구 개방됨!', targetCx, targetCy - 52);
-    ctx.font = '600 11px monospace';
+    // (2) 고속 회전하는 나선형 회오리 아크 (Swirl Spiral Arms)
+    const spinAngle = now * 0.0035;
+    const arms = 4;
+    ctx.save();
+    ctx.translate(targetCx, targetCy);
+
+    for (let i = 0; i < arms; i++) {
+      const baseAngle = spinAngle + (i * Math.PI * 2 / arms);
+      ctx.save();
+      ctx.rotate(baseAngle);
+
+      // 나선 궤적 그리기 (중심으로 빨려 들어가는 회오리 나선)
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      for (let t = 0; t <= 1; t += 0.05) {
+        const r = t * 36;
+        const a = t * 2.2;
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (t === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = `rgba(255, 255, 255, ${0.75 - (i % 2) * 0.2})`;
+      ctx.lineWidth = 2.2;
+      ctx.shadowColor = '#fde047';
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+
+      // 두 번째 보조 황금 에너지 줄기
+      ctx.beginPath();
+      for (let t = 0; t <= 1; t += 0.05) {
+        const r = t * 32;
+        const a = t * 2.5 + 0.3;
+        const px = Math.cos(a) * r;
+        const py = Math.sin(a) * r;
+        if (t === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    // (3) 중심으로 빨려 들어가는 별빛 파티클
+    const particleCount = 8;
+    for (let p = 0; p < particleCount; p++) {
+      const pPhase = (now * 0.002 + p / particleCount) % 1;
+      const pRadius = 35 * (1 - pPhase);
+      const pAngle = -spinAngle * 1.5 + p * (Math.PI * 2 / particleCount) + pPhase * 3;
+      const px = Math.cos(pAngle) * pRadius;
+      const py = Math.sin(pAngle) * pRadius;
+      const pSize = 1.2 + pPhase * 1.8;
+
+      ctx.fillStyle = p % 2 === 0 ? '#ffffff' : '#fef08a';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(px, py, pSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // (4) 중앙 백열 싱귤래리티 코어
+    const corePulse = Math.sin(now / 150) * 1.5 + 6.5;
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('[SPACE]로 탈출', targetCx, targetCy + 56);
+    ctx.shadowColor = '#fef08a';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(0, 0, corePulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    // 사용자 요청: "✨ 탈출구 개방됨!" 및 "[SPACE]로 탈출" 텍스트 제거 완료
   } else {
-    // [열쇠 미소지]: 붉은 봉인 사슬 및 자물쇠 홀로그램
+    // 🔒 [열쇠 미소지]: 붉은 봉인 사슬 및 자물쇠 홀로그램
     const lockedGrad = ctx.createRadialGradient(targetCx, targetCy, 5, targetCx, targetCy, 38);
     lockedGrad.addColorStop(0, 'rgba(239, 68, 68, 0.2)');
     lockedGrad.addColorStop(0.8, 'rgba(153, 27, 27, 0.45)');

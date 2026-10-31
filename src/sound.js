@@ -6,7 +6,11 @@
 class SoundSystem {
   constructor() {
     this.ctx = null;
-    this.isMuted = false;
+    let storedMute = false;
+    try {
+      storedMute = localStorage.getItem('wd_sound_muted') === 'true';
+    } catch (e) {}
+    this.isMuted = storedMute;
     this.masterGain = null;
   }
 
@@ -27,6 +31,9 @@ class SoundSystem {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
+    try {
+      localStorage.setItem('wd_sound_muted', this.isMuted ? 'true' : 'false');
+    } catch (e) {}
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.35, this.ctx.currentTime);
     }
@@ -34,7 +41,10 @@ class SoundSystem {
   }
 
   setMute(mute) {
-    this.isMuted = mute;
+    this.isMuted = !!mute;
+    try {
+      localStorage.setItem('wd_sound_muted', this.isMuted ? 'true' : 'false');
+    } catch (e) {}
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.35, this.ctx.currentTime);
     }
