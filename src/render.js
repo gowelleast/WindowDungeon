@@ -744,12 +744,12 @@ export function drawHUD(ctx, hasKey, isMuted) {
   ctx.textBaseline = 'middle';
   ctx.fillText(hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE', badgeX + badgeW / 2, badgeY + badgeH / 2);
 
-  // 2. 우상단: 사운드 상태 힌트
-  const soundText = isMuted ? '🔇 MUTE' : '🔊 SFX ON';
-  ctx.font = '10.5px monospace';
+  // 2. 우상단: 사운드 및 미니맵 단축키 힌트
+  const soundText = isMuted ? '🔇 MUTE' : '🔊 SFX';
+  ctx.font = '10.5px "JetBrains Mono", monospace';
   ctx.fillStyle = '#64748b';
   ctx.textAlign = 'right';
-  ctx.fillText(soundText, W - 28, 42);
+  ctx.fillText(`🗺️ [M] MAP  |  ${soundText}`, W - 28, 42);
 
   ctx.restore();
 }

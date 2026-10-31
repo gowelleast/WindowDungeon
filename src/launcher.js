@@ -1,7 +1,7 @@
 import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
-import { initMinimap, openPipMinimap } from './minimap.js';
+import { initMinimap, togglePipMinimap } from './minimap.js';
 import { initInspector } from './inspector.js';
 
 import { sound } from './sound.js';
@@ -69,16 +69,6 @@ window.addEventListener('beforeunload', (e) => {
 
 document.getElementById('btn-start').addEventListener('click', async () => {
   disposeSession();
-
-  // 유저 클릭 제스처가 살아있는 즉시 Document PiP 미니맵 창 실행
-  // (popup 윈도우 생성이나 await 이후에는 제스처 토큰이 소모되어 NotAllowedError가 발생하므로 최상단에서 호출)
-  if ('documentPictureInPicture' in window) {
-    try {
-      await openPipMinimap();
-    } catch (e) {
-      console.warn('[Launcher] PiP 자동 실행 실패:', e);
-    }
-  }
 
   let screens = [];
   let currentScreenLabel = '';

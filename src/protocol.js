@@ -15,4 +15,6 @@ export const MSG = {
   DOOR_LOCKED: "doorLocked",
   MONSTER_HIT: "monsterHit",
   SOUND_MUTE_SYNC: "soundMuteSync",
+  PIP_CLOSE: "pipClose",
+  PIP_STATE: "pipState",
 };

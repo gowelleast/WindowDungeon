@@ -13,6 +13,7 @@ import {
 import { CONFIG } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
 import { sound } from './sound.js';
+import { initMinimap, togglePipMinimap, closePipMinimap } from './minimap.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
 const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -32,6 +33,9 @@ window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
 
 const channel = new DungeonChannel(winId);
+
+// 미니맵 동기화 리스너 활성화 (방 창에서도 PiP 전술 레이더 즉시 오픈 가능)
+const disposeMinimap = initMinimap(channel);
 
 const canvas = document.getElementById('game-canvas');
 canvas.width = dynamicW;
@@ -115,6 +119,10 @@ channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
   sound.setMute(data.isMuted);
 });
 
+channel.on(MSG.PIP_CLOSE, () => {
+  closePipMinimap(window, channel);
+});
+
 // 3. 메인 렌더링 틱
 channel.on(MSG.TICK, (data) => {
   if (!myCellId || isVictory) return;
@@ -170,6 +178,12 @@ window.addEventListener('keydown', (e) => {
 
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) {
     e.preventDefault();
+  }
+
+  // M 키: 전술 미니맵 플로팅 PiP 즉시 열기 / 닫기 토글
+  if (isM && !e.repeat) {
+    togglePipMinimap(window, channel);
+    return;
   }
 
   // U 키: 실시간 음소거 토글
@@ -275,6 +289,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+  if (typeof disposeMinimap === 'function') disposeMinimap();
   channel.send(MSG.BYE, { winId });
   channel.close();
 });

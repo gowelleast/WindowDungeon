@@ -2,7 +2,7 @@ import { CONFIG } from './config.js';
 import { MSG } from './protocol.js';
 import { cellToScreenRect } from './grid.js';
 
-let canvas, ctx;
+let launcherCanvas, launcherCtx;
 let screens = [];
 let cellMap = new Map();
 let player = null;
@@ -10,23 +10,32 @@ let pingRtt = 0;
 let msgRate = 0;
 let intervalId = null;
 
-// Document Picture-in-Picture 상태
-let pipWindow = null;
-let isPipExpanded = false; // 기본값: 축소(아이콘/뱃지) 모드로 시작하여 M 입력 시 즉시 확장
-let mKeyPressed = false;
+// Document Picture-in-Picture 전역 상태
+let activePipWindow = null;
+let isRemotePipOpen = false;
+let pipCanvas = null;
+let pipCtx = null;
+let currentChannel = null;
 
-/** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다. */
+/** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다 (런처 화면용). */
 export function initMinimap(channel) {
-  canvas = document.getElementById('minimap-canvas');
-  if (!canvas) return () => {};
-  ctx = canvas.getContext('2d');
+  currentChannel = channel;
+  launcherCanvas = document.getElementById('minimap-canvas');
+  if (launcherCanvas) {
+    launcherCtx = launcherCanvas.getContext('2d');
+  }
 
   // 이전 상태 초기화
   cellMap.clear();
   player = null;
   msgRate = 0;
   pingRtt = 0;
-  isPipExpanded = false;
+  isRemotePipOpen = false;
+
+  if (activePipWindow && !activePipWindow.closed) {
+    try { activePipWindow.close(); } catch (e) {}
+    activePipWindow = null;
+  }
   
   if (intervalId) clearInterval(intervalId);
 
@@ -41,28 +50,33 @@ export function initMinimap(channel) {
   const unsubscribers = [
     channel.on(MSG.SCREENS_UPDATE, (data) => {
       screens = data.screens;
-      requestAnimationFrame(drawMinimap);
+      renderAllMinimaps();
     }),
 
     channel.on(MSG.ASSIGN, (data) => {
       cellMap.set(data.id, data);
-      requestAnimationFrame(drawMinimap);
+      renderAllMinimaps();
     }),
 
     channel.on(MSG.TICK, (data) => {
       player = data;
-      requestAnimationFrame(drawMinimap);
+      renderAllMinimaps();
     }),
 
-    // 모든 방에서 발생하는 키 입력을 통해 M / ㅡ 키 토글 감지
-    channel.on(MSG.INPUT, (data) => {
-      const hasM = data.keys && data.keys.some(k => k.toLowerCase() === 'm' || k === 'ㅡ' || k.toLowerCase() === 'keym');
-      if (hasM && !mKeyPressed) {
-        mKeyPressed = true;
-        togglePipMode();
-      } else if (!hasM) {
-        mKeyPressed = false;
+    // 다른 창에서 PiP 닫기 요청 시
+    channel.on(MSG.PIP_CLOSE, () => {
+      if (activePipWindow && !activePipWindow.closed) {
+        try { activePipWindow.close(); } catch (e) {}
       }
+      activePipWindow = null;
+      isRemotePipOpen = false;
+      updateMetrics();
+    }),
+
+    // 다른 창에서 PiP 상태 알림 시
+    channel.on(MSG.PIP_STATE, (data) => {
+      isRemotePipOpen = !!data.isOpen;
+      updateMetrics();
     }),
   ];
 
@@ -71,16 +85,16 @@ export function initMinimap(channel) {
     const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
     if (isM && !e.repeat) {
       e.preventDefault();
-      togglePipMode();
+      togglePipMinimap(window, channel);
     }
   };
   window.addEventListener('keydown', onLauncherKey);
   unsubscribers.push(() => window.removeEventListener('keydown', onLauncherKey));
 
-  // PiP 수동 버튼 바인딩
+  // 런처 화면 PiP 수동 버튼 바인딩
   const btnPip = document.getElementById('btn-pip');
   if (btnPip) {
-    const onPipClick = () => togglePipWindow();
+    const onPipClick = () => togglePipMinimap(window, channel);
     btnPip.addEventListener('click', onPipClick);
     unsubscribers.push(() => btnPip.removeEventListener('click', onPipClick));
   }
@@ -91,215 +105,148 @@ export function initMinimap(channel) {
       clearInterval(intervalId);
       intervalId = null;
     }
-    if (pipWindow && !pipWindow.closed) {
-      pipWindow.close();
-      pipWindow = null;
+    if (activePipWindow && !activePipWindow.closed) {
+      try { activePipWindow.close(); } catch (e) {}
+      activePipWindow = null;
     }
   };
 }
 
-/** 외부(런처 시작 클릭 핸들러 등)에서 PiP 창을 기본으로 열기 위한 함수 */
-export async function openPipMinimap() {
-  if (!('documentPictureInPicture' in window)) return;
-  if (pipWindow && !pipWindow.closed) return;
-  await togglePipWindow(true);
+/** PiP 창의 열림 여부 확인 */
+export function isPipWindowOpen(targetWindow = window) {
+  if (activePipWindow && !activePipWindow.closed) return true;
+  if (targetWindow.documentPictureInPicture && targetWindow.documentPictureInPicture.window) return true;
+  return isRemotePipOpen;
 }
 
-/** Document Picture-in-Picture 윈도우 생성/해제 토글 */
-async function togglePipWindow(forceOpen = false) {
-  if (!('documentPictureInPicture' in window)) {
-    if (!forceOpen) {
-      alert('현재 브라우저에서는 Document Picture-in-Picture API를 지원하지 않습니다.\n최신 Chromium 브라우저(Chrome/Edge 111 이상)에서 사용 가능합니다.');
-    }
+/** PiP 미니맵 토글 (M 키 입력 시 활성 창에서 직접 호출) */
+export async function togglePipMinimap(targetWindow = window, channel = null) {
+  const ch = channel || currentChannel;
+
+  // 이미 열려 있으면 닫기
+  if (isPipWindowOpen(targetWindow)) {
+    closePipMinimap(targetWindow, ch);
     return;
   }
 
-  // 이미 열려 있으면 닫기 (forceOpen이 아닐 때만)
-  if (pipWindow && !pipWindow.closed) {
-    if (!forceOpen) pipWindow.close();
+  // 닫혀 있으면 큼직하고 시원한 350x260 창으로 오픈
+  await openPipMinimap(targetWindow, ch);
+}
+
+/** Document Picture-in-Picture 미니맵 창 열기 (시원하고 넓은 350x260 해상도) */
+export async function openPipMinimap(targetWindow = window, channel = null) {
+  const ch = channel || currentChannel;
+
+  if (!('documentPictureInPicture' in targetWindow)) {
+    console.warn('[Minimap] 이 브라우저는 Document Picture-in-Picture API를 지원하지 않습니다.');
     return;
   }
+
+  // 이미 열려 있으면 재오픈 불필요
+  if (isPipWindowOpen(targetWindow)) return;
 
   try {
-    // 초기 생성 시 방해되지 않는 컴팩트한 축소 뱃지 크기 (250x68)로 시작
-    isPipExpanded = false;
-    pipWindow = await window.documentPictureInPicture.requestWindow({
-      width: 250,
-      height: 68,
+    // 350 x 260 크기로 시원하게 오픈
+    const pipWin = await targetWindow.documentPictureInPicture.requestWindow({
+      width: 350,
+      height: 260,
     });
 
-    const btnPip = document.getElementById('btn-pip');
-    if (btnPip) {
-      btnPip.classList.add('active');
-      btnPip.innerHTML = '📌 PiP 활성화됨 (M)';
+    activePipWindow = pipWin;
+    isRemotePipOpen = true;
+    if (ch) ch.send(MSG.PIP_STATE, { isOpen: true });
+
+    // 부모 창의 스타일 전달
+    copyStylesheetsToPip(targetWindow, pipWin);
+
+    pipWin.document.body.className = 'pip-body';
+    pipWin.document.body.innerHTML = `
+      <div class="pip-wrapper" style="width:100%; height:100%; display:flex; flex-direction:column; background:#080a0f;">
+        <div class="pip-topbar" style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#11151f; border-bottom:1px solid rgba(255,255,255,0.08);">
+          <span class="pip-topbar-title" style="font-size:12px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:5px;">
+            🗺️ 전술 미니맵 레이더
+          </span>
+          <button id="btn-pip-close-x" class="btn-pip" style="padding:2px 8px; font-size:11px; background:#1e293b; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:4px; cursor:pointer;">
+            ✕ 닫기 (M)
+          </button>
+        </div>
+        <div id="pip-canvas-area" style="flex:1; width:100%; position:relative; overflow:hidden; background:#080a0f;">
+          <canvas id="pip-map-canvas" width="350" height="205" style="width:100%; height:100%; display:block;"></canvas>
+        </div>
+        <div id="pip-bottom-metrics" class="pip-bottom-metrics" style="padding:3px 10px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#34d399; background:rgba(0,0,0,0.4); border-top:1px solid rgba(255,255,255,0.05); display:flex; justify-content:space-between;">
+          <span>방: ${cellMap.size}개 | RTT: ${pingRtt}ms</span>
+          <span>Msg: ${msgRate}/s</span>
+        </div>
+      </div>
+    `;
+
+    pipCanvas = pipWin.document.getElementById('pip-map-canvas');
+    if (pipCanvas) {
+      pipCtx = pipCanvas.getContext('2d');
     }
 
-    // 부모 창의 스타일시트 복사
-    copyStylesheetsToPip(pipWindow);
+    // 닫기 버튼 이벤트
+    const btnClose = pipWin.document.getElementById('btn-pip-close-x');
+    if (btnClose) {
+      btnClose.addEventListener('click', () => {
+        closePipMinimap(targetWindow, ch);
+      });
+    }
 
-    // PiP 윈도우 DOM 렌더링
-    pipWindow.document.body.className = 'pip-body';
-    renderPipDOM();
-
-    // 윈도우 종료 시 원래 런처 위치로 캔버스 복원
-    pipWindow.addEventListener('pagehide', () => {
-      restoreCanvasToLauncher();
-      pipWindow = null;
-      isPipExpanded = false;
-      if (btnPip) {
-        btnPip.classList.remove('active');
-        btnPip.innerHTML = '📌 Always-on-Top (PiP)';
-      }
-    });
-
-    // PiP 윈도우 포커스 상태에서의 M / ㅡ 키 감지
-    pipWindow.addEventListener('keydown', (e) => {
+    // PiP 창 내부에서 M, ㅡ, ESC 입력 시 즉시 닫기
+    pipWin.addEventListener('keydown', (e) => {
       const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
-      if (isM && !e.repeat) {
+      if (isM || e.key === 'Escape') {
         e.preventDefault();
-        togglePipMode();
+        closePipMinimap(targetWindow, ch);
       }
     });
+
+    // 창 닫힐 때 정리
+    pipWin.addEventListener('pagehide', () => {
+      activePipWindow = null;
+      pipCanvas = null;
+      pipCtx = null;
+      isRemotePipOpen = false;
+      if (ch) ch.send(MSG.PIP_STATE, { isOpen: false });
+      updateMetrics();
+    });
+
+    renderAllMinimaps();
+    updateMetrics();
 
   } catch (err) {
     console.warn('[Minimap] Document PiP 열기 실패/취소:', err);
   }
 }
 
-/** PiP 내부 DOM 구조 렌더링 */
-function renderPipDOM() {
-  if (!pipWindow || pipWindow.closed) return;
+/** PiP 미니맵 닫기 */
+export function closePipMinimap(targetWindow = window, channel = null) {
+  const ch = channel || currentChannel;
 
-  pipWindow.document.body.innerHTML = `
-    <div class="pip-wrapper">
-      <!-- 1. 축소 모드: 방해되지 않는 작은 플로팅 배지 -->
-      <div id="pip-collapsed-view" class="pip-collapsed-view" style="${isPipExpanded ? 'display:none;' : 'display:flex;'}">
-        <span class="pip-icon-large">🗺️</span>
-        <span id="pip-badge-text" class="pip-collapsed-label">미니맵 <span class="pip-kbd">M</span></span>
-      </div>
+  if (activePipWindow && !activePipWindow.closed) {
+    try { activePipWindow.close(); } catch (e) {}
+  }
+  activePipWindow = null;
 
-      <!-- 2. 확장 모드: 실시간 전술 레이더 캔버스 -->
-      <div id="pip-expanded-view" class="pip-expanded-view" style="${isPipExpanded ? 'display:flex;' : 'display:none;'}">
-        <div id="pip-topbar" class="pip-topbar">
-          <span class="pip-topbar-title">🗺️ 공간 미니맵</span>
-          <div style="display:flex; align-items:center; gap:6px;">
-            <button id="btn-pip-size-toggle" class="btn-pip" style="padding: 1px 6px; font-size: 10px;">${isPipExpanded ? '⤡ 축소' : '⤢ 확대'}</button>
-            <span class="pip-kbd">M</span>
-          </div>
-        </div>
-        <div id="pip-canvas-area" class="pip-canvas-area"></div>
-        <div id="pip-bottom-metrics" class="pip-bottom-metrics">
-          <span>방: ${cellMap.size}개 | RTT: ${pingRtt}ms</span>
-          <span>Msg: ${msgRate}/s</span>
-        </div>
-      </div>
-    </div>
-  `;
-
-  // 축소 뷰 클릭 시 펼침 및 크기 확장
-  const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
-  if (collapsedEl) {
-    collapsedEl.addEventListener('click', () => {
-      togglePipMode(true);
-      try { pipWindow.resizeTo(280, 200); } catch(e) {}
-    });
+  if (targetWindow.documentPictureInPicture && targetWindow.documentPictureInPicture.window) {
+    try { targetWindow.documentPictureInPicture.window.close(); } catch (e) {}
   }
 
-  // 상단 바 클릭 시 접기
-  const topbarEl = pipWindow.document.getElementById('pip-topbar');
-  if (topbarEl) {
-    topbarEl.addEventListener('click', (e) => {
-      if (e.target.id !== 'btn-pip-size-toggle') {
-        togglePipMode(false);
-      }
-    });
+  isRemotePipOpen = false;
+  if (ch) {
+    ch.send(MSG.PIP_CLOSE);
+    ch.send(MSG.PIP_STATE, { isOpen: false });
   }
 
-  // PiP 창 내부 크기 조절 버튼 클릭 (유저 제스처가 유효하므로 resizeTo 정상 작동)
-  const btnSizeToggle = pipWindow.document.getElementById('btn-pip-size-toggle');
-  if (btnSizeToggle) {
-    btnSizeToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      try {
-        if (isPipExpanded) {
-          pipWindow.resizeTo(250, 68);
-          togglePipMode(false);
-        } else {
-          pipWindow.resizeTo(280, 200);
-          togglePipMode(true);
-        }
-      } catch (err) {}
-    });
-  }
-
-  syncCanvasLocation();
-}
-
-/** PiP 창의 표시 모드(레이더 캔버스 ↔ 미니 뱃지) 토글 */
-function togglePipMode(forceState = null) {
-  if (!pipWindow || pipWindow.closed) return;
-
-  isPipExpanded = (forceState !== null) ? forceState : !isPipExpanded;
-
-  // 브라우저가 지원하는 경우 창 크기 변경 시도
-  try {
-    if (isPipExpanded) {
-      pipWindow.resizeTo(280, 200);
-    } else {
-      pipWindow.resizeTo(250, 68);
-    }
-  } catch (e) {}
-
-  const collapsedEl = pipWindow.document.getElementById('pip-collapsed-view');
-  const expandedEl = pipWindow.document.getElementById('pip-expanded-view');
-  const btnSizeToggle = pipWindow.document.getElementById('btn-pip-size-toggle');
-
-  if (collapsedEl && expandedEl) {
-    collapsedEl.style.display = isPipExpanded ? 'none' : 'flex';
-    expandedEl.style.display = isPipExpanded ? 'flex' : 'none';
-  }
-  if (btnSizeToggle) {
-    btnSizeToggle.textContent = isPipExpanded ? '⤡ 축소' : '⤢ 확대';
-  }
-
-  syncCanvasLocation();
-}
-
-/** 캔버스를 현재 상태에 맞게 PiP 창 또는 런처로 이동 */
-function syncCanvasLocation() {
-  if (!canvas) {
-    canvas = document.getElementById('minimap-canvas');
-    if (canvas && !ctx) ctx = canvas.getContext('2d');
-  }
-  if (!canvas) return;
-
-  if (pipWindow && !pipWindow.closed) {
-    if (isPipExpanded) {
-      const area = pipWindow.document.getElementById('pip-canvas-area');
-      if (area && !area.contains(canvas)) {
-        area.appendChild(canvas);
-      }
-    } else {
-      restoreCanvasToLauncher();
-    }
-  } else {
-    restoreCanvasToLauncher();
-  }
-
-  requestAnimationFrame(drawMinimap);
-}
-
-/** 캔버스를 원래 런처 대시보드 위치로 복원 */
-function restoreCanvasToLauncher() {
-  const container = document.getElementById('minimap-container');
-  if (container && canvas && !container.contains(canvas)) {
-    container.appendChild(canvas);
-  }
+  pipCanvas = null;
+  pipCtx = null;
+  updateMetrics();
 }
 
 /** 부모 창의 스타일시트를 PiP 윈도우에 전달 */
-function copyStylesheetsToPip(targetPipWindow) {
-  [...document.styleSheets].forEach((styleSheet) => {
+function copyStylesheetsToPip(fromWindow, targetPipWindow) {
+  [...fromWindow.document.styleSheets].forEach((styleSheet) => {
     try {
       const cssRules = [...styleSheet.cssRules].map((rule) => rule.cssText).join('');
       const style = targetPipWindow.document.createElement('style');
@@ -315,33 +262,51 @@ function copyStylesheetsToPip(targetPipWindow) {
   });
 }
 
+/** 모든 활성 캔버스(런처 캔버스 + PiP 캔버스)에 동시 렌더링 */
+function renderAllMinimaps() {
+  const now = Date.now();
+
+  // 1. 런처 대시보드 캔버스
+  if (launcherCtx && launcherCanvas) {
+    drawMinimapTo(launcherCtx, launcherCanvas, now);
+  }
+
+  // 2. PiP 플로팅 창 캔버스
+  if (pipCtx && pipCanvas && activePipWindow && !activePipWindow.closed) {
+    drawMinimapTo(pipCtx, pipCanvas, now);
+  }
+}
+
 function updateMetrics() {
   const connectedRooms = cellMap.size;
 
-  // 1. 런처 화면 지표 갱신
+  // 런처 화면 지표 갱신
   const el = document.getElementById('sync-metrics');
   if (el) {
     el.innerHTML = `<span>📡 <strong>개척된 방:</strong> ${connectedRooms}개</span> &nbsp;|&nbsp; <span>⚡ <strong>RTT:</strong> ${pingRtt}ms</span> &nbsp;|&nbsp; <span>📊 <strong>Msg/sec:</strong> ${msgRate}</span>`;
   }
 
-  // 2. PiP 윈도우 활성화 시 지표 갱신
-  if (pipWindow && !pipWindow.closed) {
-    const pipBadgeText = pipWindow.document.getElementById('pip-badge-text');
-    if (pipBadgeText) {
-      pipBadgeText.innerHTML = `미니맵 (${connectedRooms}개) <span class="pip-kbd">M</span>`;
-    }
-    const pipBottomMetrics = pipWindow.document.getElementById('pip-bottom-metrics');
+  const btnPip = document.getElementById('btn-pip');
+  if (btnPip) {
+    const open = isPipWindowOpen();
+    btnPip.classList.toggle('active', open);
+    btnPip.innerHTML = open ? '📌 PiP 닫기 (M)' : '📌 Always-on-Top (PiP)';
+  }
+
+  // PiP 윈도우 지표 갱신
+  if (activePipWindow && !activePipWindow.closed) {
+    const pipBottomMetrics = activePipWindow.document.getElementById('pip-bottom-metrics');
     if (pipBottomMetrics) {
       pipBottomMetrics.innerHTML = `<span>방: ${connectedRooms}개 | RTT: ${pingRtt}ms</span><span>Msg: ${msgRate}/s</span>`;
     }
   }
 }
 
-function drawMinimap() {
-  if (!ctx || screens.length === 0) return;
-  const now = Date.now();
+/** 캔버스 컨텍스트에 전술 미니맵 렌더링 */
+function drawMinimapTo(targetCtx, targetCanvas, now) {
+  if (!targetCtx || screens.length === 0) return;
 
-  // 1. 전체 화면을 덮는 Bounding Box 계산
+  // 1. 전체 화면 Bounding Box 계산
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of screens) {
     if (s.availLeft < minX) minX = s.availLeft;
@@ -353,55 +318,52 @@ function drawMinimap() {
   const totalW = maxX - minX;
   const totalH = maxY - minY;
   
-  const padding = 24;
+  const padding = 20;
   const scale = Math.min(
-    (canvas.width - padding * 2) / totalW,
-    (canvas.height - padding * 2) / totalH
+    (targetCanvas.width - padding * 2) / totalW,
+    (targetCanvas.height - padding * 2) / totalH
   );
 
-  const offsetX = (canvas.width - totalW * scale) / 2;
-  const offsetY = (canvas.height - totalH * scale) / 2;
+  const offsetX = (targetCanvas.width - totalW * scale) / 2;
+  const offsetY = (targetCanvas.height - totalH * scale) / 2;
 
   // 화면 배경 (다크 네이비 레이더 맵)
-  ctx.fillStyle = '#080a0f';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  targetCtx.fillStyle = '#080a0f';
+  targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
 
   // 미세 레이더 격자 눈금선
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x < canvas.width; x += 30) {
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+  targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
+  targetCtx.lineWidth = 1;
+  for (let x = 0; x < targetCanvas.width; x += 25) {
+    targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, targetCanvas.height); targetCtx.stroke();
   }
-  for (let y = 0; y < canvas.height; y += 30) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+  for (let y = 0; y < targetCanvas.height; y += 25) {
+    targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(targetCanvas.width, y); targetCtx.stroke();
   }
 
-  // 2. 모니터 하우징 그리기
+  // 2. 모니터 하우징
   for (const s of screens) {
     const dx = offsetX + (s.availLeft - minX) * scale;
     const dy = offsetY + (s.availTop - minY) * scale;
     const dw = s.availWidth * scale;
     const dh = s.availHeight * scale;
 
-    ctx.fillStyle = '#11151f';
-    ctx.fillRect(dx, dy, dw, dh);
+    targetCtx.fillStyle = '#11151f';
+    targetCtx.fillRect(dx, dy, dw, dh);
 
-    ctx.strokeStyle = s.isPrimary ? '#38bdf8' : '#334155';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(dx, dy, dw, dh);
+    targetCtx.strokeStyle = s.isPrimary ? '#38bdf8' : '#334155';
+    targetCtx.lineWidth = 1.5;
+    targetCtx.strokeRect(dx, dy, dw, dh);
 
-    const corner = 6;
-    ctx.strokeStyle = s.isPrimary ? '#7dd3fc' : '#64748b';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(dx, dy + corner); ctx.lineTo(dx, dy); ctx.lineTo(dx + corner, dy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(dx + dw - corner, dy); ctx.lineTo(dx + dw, dy); ctx.lineTo(dx + dw, dy + corner); ctx.stroke();
+    const corner = 5;
+    targetCtx.strokeStyle = s.isPrimary ? '#7dd3fc' : '#64748b';
+    targetCtx.lineWidth = 2;
+    targetCtx.beginPath(); targetCtx.moveTo(dx, dy + corner); targetCtx.lineTo(dx, dy); targetCtx.lineTo(dx + corner, dy); targetCtx.stroke();
+    targetCtx.beginPath(); targetCtx.moveTo(dx + dw - corner, dy); targetCtx.lineTo(dx + dw, dy); targetCtx.lineTo(dx + dw, dy + corner); targetCtx.stroke();
 
-    ctx.fillStyle = s.isPrimary ? '#bae6fd' : '#94a3b8';
-    ctx.font = 'bold 11px "Outfit", sans-serif';
-    ctx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 8, dy + 16);
-    ctx.fillStyle = '#64748b';
-    ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillText(`${s.availWidth} × ${s.availHeight}`, dx + 8, dy + 28);
+    targetCtx.fillStyle = s.isPrimary ? '#bae6fd' : '#94a3b8';
+    targetCtx.font = 'bold 10px "Outfit", sans-serif';
+    targetCtx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 6, dy + 14);
   }
 
   // 3. 개척된 방(Cell) 및 출입문(Doors) 그리기
@@ -415,87 +377,89 @@ function drawMinimap() {
     const dw = rect.width * scale;
     const dh = rect.height * scale;
 
-    ctx.fillStyle = 'rgba(16, 185, 129, 0.12)';
-    ctx.fillRect(dx, dy, dw, dh);
+    targetCtx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+    targetCtx.fillRect(dx, dy, dw, dh);
 
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(dx, dy, dw, dh);
+    targetCtx.strokeStyle = '#10b981';
+    targetCtx.lineWidth = 1.2;
+    targetCtx.strokeRect(dx, dy, dw, dh);
 
     if (cell.doors) {
-      ctx.fillStyle = '#38bdf8';
-      const notchW = dw * 0.2;
+      targetCtx.fillStyle = '#38bdf8';
+      const notchW = dw * 0.22;
       const notchThick = 2;
       cell.doors.forEach(dir => {
-        if (dir === 'up') ctx.fillRect(dx + dw / 2 - notchW / 2, dy, notchW, notchThick);
-        if (dir === 'down') ctx.fillRect(dx + dw / 2 - notchW / 2, dy + dh - notchThick, notchW, notchThick);
-        if (dir === 'left') ctx.fillRect(dx, dy + dh / 2 - notchW / 2, notchThick, notchW);
-        if (dir === 'right') ctx.fillRect(dx + dw - notchThick, dy + dh / 2 - notchW / 2, notchThick, notchW);
+        if (dir === 'up') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy, notchW, notchThick);
+        if (dir === 'down') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy + dh - notchThick, notchW, notchThick);
+        if (dir === 'left') targetCtx.fillRect(dx, dy + dh / 2 - notchW / 2, notchThick, notchW);
+        if (dir === 'right') targetCtx.fillRect(dx + dw - notchThick, dy + dh / 2 - notchW / 2, notchThick, notchW);
       });
     }
 
-    // 🚪 발견된 탈출문 아이콘 마킹 (미니맵 핵심 연계)
+    // 🚪 발견된 탈출문 아이콘 마킹
     if (player && player.exitDiscovered && player.exitCellId === cell.id) {
-      ctx.fillStyle = player.hasKey ? '#eab308' : '#ef4444';
-      ctx.font = 'bold 13px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
-      ctx.textAlign = 'left';
+      targetCtx.fillStyle = player.hasKey ? '#eab308' : '#ef4444';
+      targetCtx.font = 'bold 13px sans-serif';
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
+      targetCtx.textAlign = 'left';
     }
 
     // 🔑 발견된 황금 열쇠 아이콘 마킹
     if (player && player.keyDiscovered && !player.hasKey && player.keyCellId === cell.id) {
-      ctx.fillStyle = '#facc15';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
-      ctx.textAlign = 'left';
+      targetCtx.fillStyle = '#facc15';
+      targetCtx.font = 'bold 12px sans-serif';
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
+      targetCtx.textAlign = 'left';
     }
   }
 
-  // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 렌더링 (미개척 방이라도 표시!)
+  // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 (label:gx,gy 정확히 파싱)
   if (player && player.monster && player.monster.cellId) {
     const m = player.monster;
-    const parts = m.cellId.split('-');
-    const mGy = parseInt(parts.pop(), 10);
-    const mGx = parseInt(parts.pop(), 10);
-    const mLabel = parts.join('-');
-    const s = screens.find(sc => sc.label === mLabel);
+    const lastColon = m.cellId.lastIndexOf(':');
+    if (lastColon !== -1) {
+      const mLabel = m.cellId.substring(0, lastColon);
+      const coords = m.cellId.substring(lastColon + 1).split(',');
+      const mGx = parseInt(coords[0], 10) || 0;
+      const mGy = parseInt(coords[1], 10) || 0;
+      const s = screens.find(sc => sc.label === mLabel);
 
-    if (s) {
-      const rect = cellToScreenRect(s, mGx, mGy, CONFIG);
-      const mx = rect.left + m.lx;
-      const my = rect.top + m.ly;
+      if (s) {
+        const rect = cellToScreenRect(s, mGx, mGy, CONFIG);
+        const mx = rect.left + m.lx;
+        const my = rect.top + m.ly;
 
-      const mdx = offsetX + (mx - minX) * scale;
-      const mdy = offsetY + (my - minY) * scale;
+        const mdx = offsetX + (mx - minX) * scale;
+        const mdy = offsetY + (my - minY) * scale;
 
-      ctx.save();
-      // 몬스터 붉은 레이더 펄스
-      const mPulse = (now % 800) / 800;
-      ctx.strokeStyle = `rgba(239, 68, 68, ${1 - mPulse})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(mdx, mdy, 3 + mPulse * 12, 0, Math.PI * 2);
-      ctx.stroke();
+        targetCtx.save();
+        // 몬스터 붉은 레이더 펄스
+        const mPulse = (now % 800) / 800;
+        targetCtx.strokeStyle = `rgba(239, 68, 68, ${1 - mPulse})`;
+        targetCtx.lineWidth = 1.5;
+        targetCtx.beginPath();
+        targetCtx.arc(mdx, mdy, 3 + mPulse * 12, 0, Math.PI * 2);
+        targetCtx.stroke();
 
-      // 몬스터 아이콘 점
-      ctx.fillStyle = '#ef4444';
-      ctx.shadowColor = '#dc2626';
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(mdx, mdy, 4, 0, Math.PI * 2);
-      ctx.fill();
+        // 몬스터 아이콘 점
+        targetCtx.fillStyle = '#ef4444';
+        targetCtx.shadowColor = '#dc2626';
+        targetCtx.shadowBlur = 8;
+        targetCtx.beginPath();
+        targetCtx.arc(mdx, mdy, 4, 0, Math.PI * 2);
+        targetCtx.fill();
 
-      // 라벨
-      ctx.font = '9px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('👾', mdx, mdy - 6);
-      ctx.restore();
+        targetCtx.font = '9px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('👾', mdx, mdy - 6);
+        targetCtx.restore();
+      }
     }
   }
 
-  // 5. 🟢 플레이어 실시간 레이더 핑(Ping) 그리기
+  // 5. 🟢 플레이어 실시간 레이더 핑(Ping)
   if (player && cellMap.has(player.activeCellId)) {
     const cell = cellMap.get(player.activeCellId);
     const s = screens.find(sc => sc.label === cell.screenLabel);
@@ -511,27 +475,27 @@ function drawMinimap() {
       const pulseR = 4 + pulseProgress * 14;
       const pulseAlpha = 1 - pulseProgress;
 
-      ctx.save();
-      ctx.strokeStyle = `rgba(52, 211, 153, ${pulseAlpha})`;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(pdx, pdy, pulseR, 0, Math.PI * 2);
-      ctx.stroke();
+      targetCtx.save();
+      targetCtx.strokeStyle = `rgba(52, 211, 153, ${pulseAlpha})`;
+      targetCtx.lineWidth = 1.5;
+      targetCtx.beginPath();
+      targetCtx.arc(pdx, pdy, pulseR, 0, Math.PI * 2);
+      targetCtx.stroke();
 
-      ctx.fillStyle = '#34d399';
-      ctx.shadowColor = '#10b981';
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(pdx, pdy, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      targetCtx.fillStyle = '#34d399';
+      targetCtx.shadowColor = '#10b981';
+      targetCtx.shadowBlur = 8;
+      targetCtx.beginPath();
+      targetCtx.arc(pdx, pdy, 3.5, 0, Math.PI * 2);
+      targetCtx.fill();
+      targetCtx.restore();
     }
   }
 
   // 6. 하단 범례 (Legend)
-  ctx.save();
-  ctx.font = '10px "JetBrains Mono", monospace';
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 12, canvas.height - 10);
-  ctx.restore();
+  targetCtx.save();
+  targetCtx.font = '10px "JetBrains Mono", monospace';
+  targetCtx.fillStyle = '#94a3b8';
+  targetCtx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 10, targetCanvas.height - 8);
+  targetCtx.restore();
 }

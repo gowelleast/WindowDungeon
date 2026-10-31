@@ -260,12 +260,19 @@ channel.on(MSG.HELLO, (data) => {
       if (cell.id === exitCellId) exitDiscovered = true;
       if (cell.id === keyCellId) keyDiscovered = true;
 
-      channel.send(MSG.ASSIGN, {
-        ...cell,
-        isExitRoom: (cell.id === exitCellId),
-        isKeyRoom: (cell.id === keyCellId),
-        hasKey
-      });
+      if (screens.length > 0) {
+        channel.send(MSG.SCREENS_UPDATE, { screens });
+      }
+
+      // 전체 개척된 방 동기화 브로드캐스트
+      for (const c of cellMap.values()) {
+        channel.send(MSG.ASSIGN, {
+          ...c,
+          isExitRoom: (c.id === exitCellId),
+          isKeyRoom: (c.id === keyCellId),
+          hasKey
+        });
+      }
     } else {
       console.warn("[Master] 알 수 없는 방 접속:", data.winId);
     }
