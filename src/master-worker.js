@@ -513,10 +513,10 @@ setInterval(() => {
 
   let dx = 0; let dy = 0;
   if (player.stunTimer <= 0) {
-    if (keys.has('ArrowUp') || keys.has('w')) dy -= 1;
-    if (keys.has('ArrowDown') || keys.has('s')) dy += 1;
-    if (keys.has('ArrowLeft') || keys.has('a')) dx -= 1;
-    if (keys.has('ArrowRight') || keys.has('d')) dx += 1;
+    if (keys.has('ArrowUp') || keys.has('arrowup') || keys.has('w') || keys.has('W')) dy -= 1;
+    if (keys.has('ArrowDown') || keys.has('arrowdown') || keys.has('s') || keys.has('S')) dy += 1;
+    if (keys.has('ArrowLeft') || keys.has('arrowleft') || keys.has('a') || keys.has('A')) dx -= 1;
+    if (keys.has('ArrowRight') || keys.has('arrowright') || keys.has('d') || keys.has('D')) dx += 1;
   }
 
   if (dx !== 0 && dy !== 0) {

@@ -216,22 +216,15 @@ window.addEventListener('keydown', (e) => {
       const curW = window.outerWidth || w;
       const curH = window.outerHeight || h;
 
-      // 현재 창 바로 인접한 방향으로 새 창 배치 (오른쪽 이동 시 현재 창 바로 오른쪽에 정확히 스냅)
-      let targetLeft = rect ? rect.left : curX + curW;
-      let targetTop = rect ? rect.top : curY;
+      // Master가 화면 해상도에 맞춰 균등 분할 계산한 정규 N*M 그리드 좌표(rect)를 최우선 적용 (화면 여백 및 겹침 방지)
+      let targetLeft = (rect && typeof rect.left === 'number') ? rect.left : curX;
+      let targetTop = (rect && typeof rect.top === 'number') ? rect.top : curY;
 
-      if (dir === 'right') {
-        targetLeft = curX + curW;
-        targetTop = curY;
-      } else if (dir === 'left') {
-        targetLeft = curX - curW;
-        targetTop = curY;
-      } else if (dir === 'down') {
-        targetLeft = curX;
-        targetTop = curY + curH;
-      } else if (dir === 'up') {
-        targetLeft = curX;
-        targetTop = curY - curH;
+      if (!rect) {
+        if (dir === 'right') targetLeft = curX + curW;
+        else if (dir === 'left') targetLeft = curX - curW;
+        else if (dir === 'down') targetTop = curY + curH;
+        else if (dir === 'up') targetTop = curY - curH;
       }
 
       targetLeft = Math.round(targetLeft);

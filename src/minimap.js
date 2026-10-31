@@ -221,7 +221,7 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
 
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
         e.preventDefault();
-        const keyName = e.key.toLowerCase();
+        const keyName = (e.key.length === 1) ? e.key.toLowerCase() : e.key;
         if (isDown) {
           pipKeys.add(keyName);
         } else {
@@ -230,6 +230,14 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
         if (ch) {
           ch.send(MSG.INPUT, { keys: Array.from(pipKeys) });
         }
+        try {
+          targetWindow.dispatchEvent(new KeyboardEvent(e.type, {
+            key: e.key,
+            code: e.code,
+            bubbles: true,
+            cancelable: true
+          }));
+        } catch (err) {}
       }
     };
 
