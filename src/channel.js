@@ -42,10 +42,14 @@ export class DungeonChannel {
       this.#dispatch(data);
     };
 
-    // 1초마다 초당 메시지 수(msg/sec) 갱신
+    // 1초마다 초당 메시지 수(msg/sec) 갱신 및 만료된 ping 정리
     this.metricTimer = setInterval(() => {
       this.msgPerSec = this.msgCount;
       this.msgCount = 0;
+      const now = performance.now();
+      for (const [id, start] of this.pendingPings) {
+        if (now - start > 5000) this.pendingPings.delete(id);
+      }
     }, 1000);
   }
 

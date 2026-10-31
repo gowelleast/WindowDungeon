@@ -1,6 +1,7 @@
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
 import { 
+  setupHiDPICanvas,
   drawRoom, 
   drawPlayer, 
   drawPrompt, 
@@ -13,7 +14,7 @@ import {
 import { CONFIG } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
 import { sound } from './sound.js';
-import { initMinimap, togglePipMinimap, closePipMinimap } from './minimap.js';
+import { initMinimap, togglePipMinimap } from './minimap.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
 const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -43,9 +44,7 @@ const channel = new DungeonChannel(winId);
 const disposeMinimap = initMinimap(channel);
 
 const canvas = document.getElementById('game-canvas');
-canvas.width = dynamicW;
-canvas.height = dynamicH;
-const ctx = canvas.getContext('2d');
+const ctx = setupHiDPICanvas(canvas, dynamicW, dynamicH);
 
 let myCellId = null;
 let roomData = null;
@@ -57,14 +56,64 @@ let isExitRoom = false;
 let isKeyRoom = false;
 let hasKey = false;
 let latestMonster = null;
+let latestTickData = null;
+let wasPlayerHere = false;
+let wasMonsterHere = false;
 let lockedAlertTimer = 0;
+let pendingRafId = null;
+
+function renderFrame() {
+  pendingRafId = null;
+  if (isVictory) return;
+
+  const isPlayerHere = Boolean(myCellId && latestTickData && latestTickData.activeCellId === myCellId);
+
+  // 1. 방 바닥, 벽, 문 렌더링 (ASSIGN 이전에도 기본 방 구조 즉시 표시)
+  drawRoom(ctx, roomData, isPlayerHere ? currentPrompt : null);
+
+  // 2. 고대 탈출문 렌더링
+  if (isExitRoom) {
+    drawExitPortal(ctx, hasKey);
+  }
+
+  // 3. 황금 열쇠 렌더링 (아직 안 먹었을 때만)
+  if (isKeyRoom && !hasKey) {
+    drawKey(ctx);
+  }
+
+  // 4. 그림자 몬스터 렌더링 (몬스터가 이 방에 있을 때)
+  if (myCellId && latestMonster && latestMonster.cellId === myCellId) {
+    drawMonster(ctx, latestMonster);
+  }
+
+  // 5. 플레이어 및 다이나믹 조명 렌더링
+  if (isPlayerHere) {
+    drawPlayer(ctx, latestTickData);
+    drawDungeonLighting(ctx, latestTickData);
+    if (currentPrompt) drawPrompt(ctx, currentPrompt);
+  } else {
+    drawDungeonLighting(ctx, null);
+  }
+
+  // 6. 상단 HUD (열쇠 상태, 단축키 및 잠김 알림)
+  drawHUD(ctx, hasKey, sound.isMuted, isPlayerHere ? lockedAlertTimer : 0);
+}
+
+function scheduleRender() {
+  if (pendingRafId === null) {
+    pendingRafId = requestAnimationFrame(renderFrame);
+  }
+}
+
+// 창 생성 즉시 첫 프레임을 동기 렌더링하여 빈 화면(흰 화면) 노출 방지
+renderFrame();
 
 // 유저 첫 클릭/인터랙션 시 오디오 컨텍스트 활성화
 window.addEventListener('click', () => { sound.init(); }, { once: true });
 window.addEventListener('keydown', () => { sound.init(); }, { once: true });
 
-// 1. 인사 (핸드쉐이크 및 브라우저 창 오버헤드 실측값 동기화)
-let helloTimer = setInterval(() => {
+// 1. 인사 (핸드쉐이크 및 브라우저 창 오버헤드 실측값 즉시 전송 + 폴백 재시도)
+function sendHello() {
   const overheadY = window.outerHeight - window.innerHeight;
   const overheadX = window.outerWidth - window.innerWidth;
   channel.send(MSG.HELLO, { 
@@ -72,7 +121,9 @@ let helloTimer = setInterval(() => {
     overheadY: (overheadY > 0) ? overheadY : undefined,
     overheadX: (overheadX > 0) ? overheadX : undefined
   });
-}, 100);
+}
+sendHello();
+let helloTimer = setInterval(sendHello, 40);
 
 // 2. 메시지 수신
 channel.on(MSG.ASSIGN, (data) => {
@@ -90,23 +141,14 @@ channel.on(MSG.ASSIGN, (data) => {
       sound.setMute(data.isMuted);
     }
 
-    requestAnimationFrame(() => {
-      drawRoom(ctx, roomData);
-      if (isExitRoom) drawExitPortal(ctx, hasKey);
-      if (isKeyRoom && !hasKey) drawKey(ctx);
-      drawDungeonLighting(ctx, null);
-      drawHUD(ctx, hasKey, sound.isMuted);
-    });
+    scheduleRender();
   }
 });
 
 channel.on(MSG.DOOR_PROMPT, (data) => {
   if (data.activeCellId === myCellId) {
-    if (data.clear) {
-      currentPrompt = null;
-    } else {
-      currentPrompt = data;
-    }
+    currentPrompt = data.clear ? null : data;
+    scheduleRender();
   }
 });
 
@@ -114,12 +156,14 @@ channel.on(MSG.DOOR_PROMPT, (data) => {
 channel.on(MSG.KEY_COLLECTED, () => {
   hasKey = true;
   sound.playKey();
+  scheduleRender();
 });
 
 channel.on(MSG.DOOR_LOCKED, (data) => {
   if (data.activeCellId === myCellId) {
     sound.playLocked();
-    lockedAlertTimer = 40; // 화면에 잠김 알림 일시 점등
+    lockedAlertTimer = 45; // 화면에 잠김 알림 일시 점등 (약 1.5초)
+    scheduleRender();
   }
 });
 
@@ -131,6 +175,7 @@ channel.on(MSG.MONSTER_HIT, (data) => {
 
 channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
   sound.setMute(data.isMuted);
+  scheduleRender();
 });
 
 // 3. 메인 렌더링 틱
@@ -138,46 +183,31 @@ channel.on(MSG.TICK, (data) => {
   if (!myCellId || isVictory) return;
 
   const isPlayerHere = (data.activeCellId === myCellId);
+  const isMonsterHere = Boolean(data.monster && data.monster.cellId === myCellId);
+
   if (!isPlayerHere && keys.size > 0) {
     keys.clear();
   }
 
+  if (lockedAlertTimer > 0) {
+    lockedAlertTimer--;
+  }
+
+  latestTickData = data;
   hasKey = data.hasKey;
   latestMonster = data.monster;
   if (data.exitCellId === myCellId) isExitRoom = true;
   if (data.keyCellId === myCellId) isKeyRoom = true;
 
-  requestAnimationFrame(() => {
-    // 1. 방 바닥, 벽, 문 렌더링
-    drawRoom(ctx, roomData, isPlayerHere ? currentPrompt : null);
+  const presenceChanged = (isPlayerHere !== wasPlayerHere) || (isMonsterHere !== wasMonsterHere);
+  wasPlayerHere = isPlayerHere;
+  wasMonsterHere = isMonsterHere;
 
-    // 2. 고대 탈출문 렌더링
-    if (isExitRoom) {
-      drawExitPortal(ctx, hasKey);
-    }
-
-    // 3. 황금 열쇠 렌더링 (아직 안 먹었을 때만)
-    if (isKeyRoom && !hasKey) {
-      drawKey(ctx);
-    }
-
-    // 4. 그림자 몬스터 렌더링 (몬스터가 이 방에 있을 때)
-    if (latestMonster && latestMonster.cellId === myCellId) {
-      drawMonster(ctx, latestMonster);
-    }
-
-    // 5. 플레이어 및 다이나믹 조명 렌더링
-    if (isPlayerHere) {
-      drawPlayer(ctx, data);
-      drawDungeonLighting(ctx, data);
-      if (currentPrompt) drawPrompt(ctx, currentPrompt);
-    } else {
-      drawDungeonLighting(ctx, null);
-    }
-
-    // 6. 상단 HUD (열쇠 상태 및 사운드 안내)
-    drawHUD(ctx, hasKey, sound.isMuted);
-  });
+  // 다중 창(15개 이상) 최적화: 비활성 빈 방은 3틱(10Hz)마다 렌더링하고, 활성/중요 방은 30Hz 즉시 렌더링
+  const isImportantRoom = isPlayerHere || isMonsterHere || presenceChanged || isExitRoom || (isKeyRoom && !hasKey);
+  if (isImportantRoom || (data.tickCount % 3 === 0)) {
+    scheduleRender();
+  }
 });
 
 // 4. 키보드 입력 및 동기적 window.open 실행
@@ -327,8 +357,8 @@ channel.on(MSG.VICTORY, (data) => {
   const myRect = (roomData && roomData.rect) ? roomData.rect : {
     left: window.screenX,
     top: window.screenY,
-    width: canvas.width,
-    height: canvas.height
+    width: dynamicW,
+    height: dynamicH
   };
 
   const animateVictory = () => {

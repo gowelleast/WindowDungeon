@@ -1,6 +1,6 @@
 import { CONFIG } from './config.js';
 import { MSG } from './protocol.js';
-import { cellToScreenRect } from './grid.js';
+import { cellToScreenRect, parseCellId } from './grid.js';
 
 let launcherCanvas, launcherCtx;
 let screens = [];
@@ -9,6 +9,7 @@ let player = null;
 let pingRtt = 0;
 let msgRate = 0;
 let intervalId = null;
+let minimapRafId = null;
 
 // Document Picture-in-Picture 전역 상태
 let activePipWindow = null;
@@ -17,12 +18,35 @@ let pipCanvas = null;
 let pipCtx = null;
 let currentChannel = null;
 
+function initHiDPIMinimapCanvas(canvas, logicalW, logicalH, win = window) {
+  const dpr = Math.min(win.devicePixelRatio || 1, 2);
+  canvas.__logicalW = logicalW;
+  canvas.__logicalH = logicalH;
+  canvas.width = Math.round(logicalW * dpr);
+  canvas.height = Math.round(logicalH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+function scheduleMinimapRender() {
+  const hasActiveCanvas = Boolean(
+    (launcherCtx && launcherCanvas) ||
+    (pipCtx && pipCanvas && activePipWindow && !activePipWindow.closed)
+  );
+  if (!hasActiveCanvas || minimapRafId !== null) return;
+  minimapRafId = requestAnimationFrame(() => {
+    minimapRafId = null;
+    renderAllMinimaps();
+  });
+}
+
 /** 미니맵을 초기화하고, 정리(dispose) 함수를 반환합니다 (런처 화면용). */
 export function initMinimap(channel) {
   currentChannel = channel;
   launcherCanvas = document.getElementById('minimap-canvas');
   if (launcherCanvas) {
-    launcherCtx = launcherCanvas.getContext('2d');
+    launcherCtx = initHiDPIMinimapCanvas(launcherCanvas, 600, 400, window);
   }
 
   // 이전 상태 초기화
@@ -39,28 +63,31 @@ export function initMinimap(channel) {
   
   if (intervalId) clearInterval(intervalId);
 
-  // 초당 1회 지표 업데이트 및 PING 발송
+  // 초당 1회 지표 업데이트 및 PING 발송 (런처 창이거나 PiP가 열린 창에서만 수행)
   intervalId = setInterval(() => {
+    if (!launcherCanvas && (!activePipWindow || activePipWindow.closed)) return;
     msgRate = channel.msgPerSec;
     pingRtt = Math.round(channel.lastRtt);
     updateMetrics();
-    channel.ping();
+    if (launcherCanvas) {
+      channel.ping();
+    }
   }, 1000);
 
   const unsubscribers = [
     channel.on(MSG.SCREENS_UPDATE, (data) => {
       screens = data.screens;
-      renderAllMinimaps();
+      scheduleMinimapRender();
     }),
 
     channel.on(MSG.ASSIGN, (data) => {
       cellMap.set(data.id, data);
-      renderAllMinimaps();
+      scheduleMinimapRender();
     }),
 
     channel.on(MSG.TICK, (data) => {
       player = data;
-      renderAllMinimaps();
+      scheduleMinimapRender();
     }),
 
     // 다른 창에서 PiP 닫기 요청 시
@@ -103,6 +130,10 @@ export function initMinimap(channel) {
 
   return () => {
     unsubscribers.forEach((off) => off());
+    if (minimapRafId !== null) {
+      cancelAnimationFrame(minimapRafId);
+      minimapRafId = null;
+    }
     if (intervalId) {
       clearInterval(intervalId);
       intervalId = null;
@@ -173,19 +204,19 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
 
     pipWin.document.body.className = 'pip-body';
     pipWin.document.body.innerHTML = `
-      <div class="pip-wrapper" style="width:100%; height:100%; display:flex; flex-direction:column; background:#080a0f;">
-        <div class="pip-topbar" style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#11151f; border-bottom:1px solid rgba(255,255,255,0.08);">
-          <span class="pip-topbar-title" style="font-size:12px; font-weight:700; color:#38bdf8; display:flex; align-items:center; gap:5px;">
+      <div class="pip-wrapper">
+        <div class="pip-topbar">
+          <span class="pip-topbar-title">
             🗺️ 미니맵
           </span>
-          <button id="btn-pip-close-x" class="btn-pip" style="padding:2px 8px; font-size:11px; background:#1e293b; color:#94a3b8; border:1px solid rgba(255,255,255,0.15); border-radius:4px; cursor:pointer;">
+          <button id="btn-pip-close-x" class="btn-pip pip-close-btn">
             ✕ 닫기 (M)
           </button>
         </div>
-        <div id="pip-canvas-area" style="flex:1; width:100%; position:relative; overflow:hidden; background:#080a0f;">
-          <canvas id="pip-map-canvas" width="350" height="205" style="width:100%; height:100%; display:block;"></canvas>
+        <div id="pip-canvas-area" class="pip-canvas-area">
+          <canvas id="pip-map-canvas" width="350" height="205"></canvas>
         </div>
-        <div id="pip-bottom-metrics" class="pip-bottom-metrics" style="padding:3px 10px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#34d399; background:rgba(0,0,0,0.4); border-top:1px solid rgba(255,255,255,0.05); display:flex; justify-content:space-between;">
+        <div id="pip-bottom-metrics" class="pip-bottom-metrics">
           <span>방: ${cellMap.size}개 | RTT: ${pingRtt}ms</span>
           <span>Msg: ${msgRate}/s</span>
         </div>
@@ -194,7 +225,7 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
 
     pipCanvas = pipWin.document.getElementById('pip-map-canvas');
     if (pipCanvas) {
-      pipCtx = pipCanvas.getContext('2d');
+      pipCtx = initHiDPIMinimapCanvas(pipCanvas, 350, 205, pipWin);
     }
 
     // 닫기 버튼 이벤트
@@ -363,6 +394,9 @@ function updateMetrics() {
 function drawMinimapTo(targetCtx, targetCanvas, now) {
   if (!targetCtx || screens.length === 0) return;
 
+  const canvasW = targetCanvas.__logicalW || targetCanvas.width;
+  const canvasH = targetCanvas.__logicalH || targetCanvas.height;
+
   // 1. 전체 화면 Bounding Box 계산
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const s of screens) {
@@ -377,26 +411,28 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   
   const padding = 20;
   const scale = Math.min(
-    (targetCanvas.width - padding * 2) / totalW,
-    (targetCanvas.height - padding * 2) / totalH
+    (canvasW - padding * 2) / totalW,
+    (canvasH - padding * 2) / totalH
   );
 
-  const offsetX = (targetCanvas.width - totalW * scale) / 2;
-  const offsetY = (targetCanvas.height - totalH * scale) / 2;
+  const offsetX = (canvasW - totalW * scale) / 2;
+  const offsetY = (canvasH - totalH * scale) / 2;
 
   // 화면 배경 (다크 네이비 레이더 맵)
   targetCtx.fillStyle = '#080a0f';
-  targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+  targetCtx.fillRect(0, 0, canvasW, canvasH);
 
   // 미세 레이더 격자 눈금선
   targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.025)';
   targetCtx.lineWidth = 1;
-  for (let x = 0; x < targetCanvas.width; x += 25) {
-    targetCtx.beginPath(); targetCtx.moveTo(x, 0); targetCtx.lineTo(x, targetCanvas.height); targetCtx.stroke();
+  targetCtx.beginPath();
+  for (let x = 0; x < canvasW; x += 25) {
+    targetCtx.moveTo(x, 0); targetCtx.lineTo(x, canvasH);
   }
-  for (let y = 0; y < targetCanvas.height; y += 25) {
-    targetCtx.beginPath(); targetCtx.moveTo(0, y); targetCtx.lineTo(targetCanvas.width, y); targetCtx.stroke();
+  for (let y = 0; y < canvasH; y += 25) {
+    targetCtx.moveTo(0, y); targetCtx.lineTo(canvasW, y);
   }
+  targetCtx.stroke();
 
   // 2. 모니터 하우징
   for (const s of screens) {
@@ -475,16 +511,12 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 (label:gx,gy 정확히 파싱)
   if (player && player.monster && player.monster.cellId) {
     const m = player.monster;
-    const lastColon = m.cellId.lastIndexOf(':');
-    if (lastColon !== -1) {
-      const mLabel = m.cellId.substring(0, lastColon);
-      const coords = m.cellId.substring(lastColon + 1).split(',');
-      const mGx = parseInt(coords[0], 10) || 0;
-      const mGy = parseInt(coords[1], 10) || 0;
-      const s = screens.find(sc => sc.label === mLabel);
+    const parsedMonster = parseCellId(m.cellId);
+    if (parsedMonster) {
+      const s = screens.find(sc => sc.label === parsedMonster.screenLabel);
 
       if (s) {
-        const rect = cellToScreenRect(s, mGx, mGy, CONFIG);
+        const rect = cellToScreenRect(s, parsedMonster.gx, parsedMonster.gy, CONFIG);
         const mx = rect.left + m.lx;
         const my = rect.top + m.ly;
 
@@ -553,6 +585,6 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   targetCtx.save();
   targetCtx.font = '10px "JetBrains Mono", monospace';
   targetCtx.fillStyle = '#94a3b8';
-  targetCtx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 10, targetCanvas.height - 8);
+  targetCtx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 10, canvasH - 8);
   targetCtx.restore();
 }

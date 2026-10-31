@@ -1,9 +1,8 @@
 import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
-import { initMinimap, togglePipMinimap } from './minimap.js';
+import { initMinimap } from './minimap.js';
 import { initInspector } from './inspector.js';
-
 import { sound } from './sound.js';
 
 let worker;
@@ -48,21 +47,25 @@ document.querySelectorAll('.start-card').forEach((card) => {
 
 // 런처 사운드 토글 버튼 바인딩 및 전역 동기화
 const btnLauncherMute = document.getElementById('btn-launcher-mute');
+function updateMuteButtonUI(isMuted) {
+  if (btnLauncherMute) {
+    btnLauncherMute.textContent = isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+  }
+}
+
 if (btnLauncherMute) {
-  btnLauncherMute.textContent = sound.isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+  updateMuteButtonUI(sound.isMuted);
   btnLauncherMute.addEventListener('click', () => {
     sound.init();
     const isMuted = sound.toggleMute();
-    btnLauncherMute.textContent = isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
+    updateMuteButtonUI(isMuted);
     channel.send(MSG.SOUND_MUTE_SYNC, { isMuted });
   });
 }
 
 channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
   sound.setMute(data.isMuted);
-  if (btnLauncherMute) {
-    btnLauncherMute.textContent = data.isMuted ? '🔇 사운드 OFF' : '🔊 사운드 ON';
-  }
+  updateMuteButtonUI(data.isMuted);
 });
 
 // 한 게임 세션 동안 등록한 구독/리스너의 정리 함수 목록.

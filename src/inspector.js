@@ -27,27 +27,39 @@ function logPacket(data) {
   switch (data.type) {
     case MSG.HELLO:
       color = '#38bdf8'; // Sky Blue
-      formatted = `<span style="color:#7dd3fc">[HELLO]</span> Room <code style="color:#fff; background:#1e293b; padding:1px 4px; border-radius:3px;">${data.winId}</code> is knocking...`;
+      formatted = `<span style="color:#7dd3fc">[HELLO]</span> Room <code class="log-code">${data.winId}</code> is knocking...`;
       break;
     case MSG.ASSIGN:
       color = '#f472b6'; // Pink
-      formatted = `<span style="color:#f472b6">[ASSIGN]</span> Cell <code style="color:#fff; background:#1e293b; padding:1px 4px; border-radius:3px;">${data.id}</code> allocated for <strong>${data.winId}</strong>`;
+      formatted = `<span style="color:#f472b6">[ASSIGN]</span> Cell <code class="log-code">${data.id}</code> allocated for <strong>${data.winId}</strong>`;
       break;
     case MSG.DOOR_PROMPT:
       color = '#fbbf24'; // Amber
       if (data.clear) {
         formatted = `<span style="color:#64748b">[PROMPT_HIDE]</span> Player stepped away from door.`;
       } else {
-        formatted = `<span style="color:#fbbf24">[DOOR_PROMPT]</span> Dir: <strong>${data.dir.toUpperCase()}</strong> → Target: <code style="color:#fff; background:#1e293b; padding:1px 4px; border-radius:3px;">${data.targetWinId}</code> (new: ${data.willOpenNew})`;
+        formatted = `<span style="color:#fbbf24">[DOOR_PROMPT]</span> Dir: <strong>${data.dir.toUpperCase()}</strong> → Target: <code class="log-code">${data.targetWinId}</code> (new: ${data.willOpenNew})`;
       }
       break;
     case MSG.DOOR_CONFIRM:
       color = '#34d399'; // Emerald
       formatted = `<span style="color:#34d399">[DOOR_CONFIRM]</span> [SPACE] Triggered in <strong>${data.winId}</strong> (Dir: ${data.dir})`;
       break;
+    case MSG.KEY_COLLECTED:
+      color = '#fde047'; // Yellow
+      formatted = `<span style="color:#fde047">[KEY_COLLECTED]</span> 🔑 Key acquired in <code class="log-code">${data.activeCellId}</code>`;
+      break;
+    case MSG.DOOR_LOCKED:
+      color = '#f87171'; // Red
+      formatted = `<span style="color:#f87171">[DOOR_LOCKED]</span> 🔒 Exit portal locked in <code class="log-code">${data.activeCellId}</code>`;
+      break;
+    case MSG.MONSTER_HIT:
+      color = '#ef4444'; // Red
+      formatted = `<span style="color:#ef4444">[MONSTER_HIT]</span> 👾 Player hit in <code class="log-code">${data.activeCellId}</code>`;
+      break;
     case MSG.VICTORY:
       color = '#facc15'; // Gold
-      formatted = `<span style="color:#facc15; font-weight: bold;">[VICTORY] 🏆 Flag retrieved in ${data.winnerWinId}!</span>`;
+      formatted = `<span style="color:#facc15; font-weight: bold;">[VICTORY] 🏆 Dungeon cleared in ${data.winnerWinId}!</span>`;
       break;
     case MSG.SCREENS_UPDATE:
       color = '#c084fc'; // Purple
@@ -72,9 +84,8 @@ function appendLog(source, htmlMessage, color) {
   const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
   
   const div = document.createElement('div');
-  div.style.marginBottom = '6px';
-  div.style.lineHeight = '1.5';
-  div.innerHTML = `<span style="color: #475569; font-size: 11px;">[${time}]</span> <span style="display:inline-block; font-size:10.5px; font-weight:700; padding:1px 5px; border-radius:3px; background: rgba(255,255,255,0.06); color: ${color}; margin-right:4px;">${source}</span> ${htmlMessage}`;
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-source" style="color: ${color};">${source}</span> ${htmlMessage}`;
   
   logContainer.appendChild(div);
 

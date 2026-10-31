@@ -3,10 +3,27 @@ import { CONFIG } from './config.js';
 const WALL = 20;
 const DOOR_W = 80;
 
+/**
+ * High-DPI (Retina) 캔버스 초기화 및 논리 해상도 바인딩
+ */
+export function setupHiDPICanvas(canvas, logicalW, logicalH) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.__logicalW = logicalW;
+  canvas.__logicalH = logicalH;
+  canvas.width = Math.round(logicalW * dpr);
+  canvas.height = Math.round(logicalH * dpr);
+  canvas.style.width = `${logicalW}px`;
+  canvas.style.height = `${logicalH}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
 // 동적 캔버스 크기 대응 헬퍼
 function getDim(ctx) {
-  const W = ctx && ctx.canvas ? ctx.canvas.width : CONFIG.ROOM_OUTER_W;
-  const H = ctx && ctx.canvas ? ctx.canvas.height : CONFIG.ROOM_OUTER_H;
+  const canvas = ctx && ctx.canvas;
+  const W = (canvas && canvas.__logicalW) || (canvas ? canvas.width : CONFIG.ROOM_OUTER_W);
+  const H = (canvas && canvas.__logicalH) || (canvas ? canvas.height : CONFIG.ROOM_OUTER_H);
   return { W, H, CX: W / 2, CY: H / 2 };
 }
 
@@ -51,57 +68,60 @@ function getFloorPattern(ctx) {
   return floorPattern;
 }
 
-// ----------------------------------------------------
-// 🌟 플레이어 발자국 트레일 파티클 시스템
-// ----------------------------------------------------
-const footstepTrails = [];
+// 정적 방 배경(바닥 타일 + 비네팅 + 석벽) 오프스크린 캐시
+let cachedRoomCanvas = null;
+let cachedRoomKey = '';
 
-export function addFootstepTrail(x, y) {
-  // 사용자의 요청으로 지저분한 발자국 잔상 비활성화 (정갈한 던전 바닥 유지)
-}
-
-export function drawFootstepTrails(ctx) {
-  ctx.save();
-  for (let i = footstepTrails.length - 1; i >= 0; i--) {
-    const p = footstepTrails[i];
-    p.alpha -= 0.018;
-    if (p.alpha <= 0) {
-      footstepTrails.splice(i, 1);
-      continue;
-    }
-    ctx.fillStyle = p.color;
-    ctx.globalAlpha = p.alpha;
-    ctx.shadowColor = p.color;
-    ctx.shadowBlur = 4;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
+function getStaticRoomCanvas(W, H) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const key = `${W}x${H}@${dpr}`;
+  if (cachedRoomCanvas && cachedRoomKey === key) {
+    return cachedRoomCanvas;
   }
-  ctx.restore();
+
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = Math.round(W * dpr);
+  offCanvas.height = Math.round(H * dpr);
+  offCanvas.__logicalW = W;
+  offCanvas.__logicalH = H;
+
+  const offCtx = offCanvas.getContext('2d');
+  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const CX = W / 2;
+  const CY = H / 2;
+
+  // 1. 바닥 타일 렌더링
+  offCtx.fillStyle = getFloorPattern(offCtx);
+  offCtx.fillRect(0, 0, W, H);
+
+  // 2. 바닥 비네팅
+  const floorVignette = offCtx.createRadialGradient(CX, CY, 60, CX, CY, Math.max(W, H) / 1.5);
+  floorVignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
+  floorVignette.addColorStop(1, 'rgba(4, 6, 9, 0.7)');
+  offCtx.fillStyle = floorVignette;
+  offCtx.fillRect(0, 0, W, H);
+
+  // 3. 3D 입체 석벽
+  drawWalls(offCtx);
+
+  cachedRoomCanvas = offCanvas;
+  cachedRoomKey = key;
+  return cachedRoomCanvas;
 }
 
 /**
  * 방(Floor, Walls, Doors, Torches) 렌더링
  */
 export function drawRoom(ctx, roomData, activePrompt = null) {
-  const { W, H, CX, CY } = getDim(ctx);
+  const { W, H } = getDim(ctx);
   const now = Date.now();
 
-  // 1. 바닥 타일 렌더링
-  ctx.fillStyle = getFloorPattern(ctx);
-  ctx.fillRect(0, 0, W, H);
+  // 1~3. 정적 바닥 및 석벽 레이어 (오프스크린 캐시 Blit)
+  const staticRoom = getStaticRoomCanvas(W, H);
+  ctx.drawImage(staticRoom, 0, 0, W, H);
 
-  // 2. 바닥 비네팅
-  const floorVignette = ctx.createRadialGradient(CX, CY, 60, CX, CY, Math.max(W, H) / 1.5);
-  floorVignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  floorVignette.addColorStop(1, 'rgba(4, 6, 9, 0.7)');
-  ctx.fillStyle = floorVignette;
-  ctx.fillRect(0, 0, W, H);
-
-  // 3. 3D 입체 석벽 (지저분한 발자국 트레일 제거)
-  drawWalls(ctx);
-
-  // 5. 문(Doors) 렌더링
+  // 4. 문(Doors) 렌더링
   if (roomData && roomData.doors) {
     roomData.doors.forEach(dir => {
       const isTarget = activePrompt && activePrompt.dir === dir && !activePrompt.clear;
@@ -109,7 +129,7 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
     });
   }
 
-  // 6. 벽면 횃불
+  // 5. 벽면 횃불
   getTorches(W, H).forEach(pos => {
     drawTorch(ctx, pos.x, pos.y, now);
   });
@@ -127,18 +147,16 @@ function drawWalls(ctx) {
   ctx.strokeStyle = '#13161c';
   ctx.lineWidth = 1.5;
   const blockSize = 40;
+  ctx.beginPath();
   for (let x = WALL; x < W - WALL; x += blockSize) {
-    ctx.beginPath();
     ctx.moveTo(x, 0); ctx.lineTo(x, WALL);
     ctx.moveTo(x, H - WALL); ctx.lineTo(x, H);
-    ctx.stroke();
   }
   for (let y = WALL; y < H - WALL; y += blockSize) {
-    ctx.beginPath();
     ctx.moveTo(0, y); ctx.lineTo(WALL, y);
     ctx.moveTo(W - WALL, y); ctx.lineTo(W, y);
-    ctx.stroke();
   }
+  ctx.stroke();
 
   ctx.strokeStyle = '#394150';
   ctx.lineWidth = 1.5;
@@ -147,6 +165,21 @@ function drawWalls(ctx) {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fillRect(WALL, WALL, W - WALL * 2, 6);
   ctx.fillRect(WALL, WALL, 6, H - WALL * 2);
+
+  // 코너 석조 기둥 마감
+  const corners = [
+    [0, 0],
+    [W - WALL, 0],
+    [0, H - WALL],
+    [W - WALL, H - WALL]
+  ];
+  ctx.fillStyle = '#2a3140';
+  ctx.strokeStyle = '#475569';
+  ctx.lineWidth = 1;
+  for (const [cx, cy] of corners) {
+    ctx.fillRect(cx + 2, cy + 2, WALL - 4, WALL - 4);
+    ctx.strokeRect(cx + 2, cy + 2, WALL - 4, WALL - 4);
+  }
 }
 
 function drawDoor(ctx, dir, isTarget, now) {
@@ -244,6 +277,15 @@ function drawTorch(ctx, tx, ty, now) {
   ctx.fillStyle = '#f97316';
   ctx.beginPath();
   ctx.ellipse(tx + flicker, ty - 4, 4, flameH / 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 미세하게 피어오르는 불티(Ember) 파티클
+  const emberPhase = ((now * 0.0018 + tx * 0.03) % 1);
+  const emberX = tx + Math.sin(now / 120 + tx) * 4;
+  const emberY = ty - 6 - emberPhase * 14;
+  ctx.fillStyle = `rgba(254, 240, 138, ${(1 - emberPhase) * 0.7})`;
+  ctx.beginPath();
+  ctx.arc(emberX, emberY, 1.1, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -855,19 +897,21 @@ export function drawDungeonLighting(ctx, playerState = null) {
 }
 
 /**
- * 상단 HUD 오버레이 (열쇠 소지 현황 및 음향 안내)
+ * 상단 HUD 오버레이 (열쇠 소지 현황, 단축키 안내 및 잠김 경고 피드백)
  */
-export function drawHUD(ctx, hasKey, isMuted) {
-  const { W } = getDim(ctx);
+export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0) {
+  const { W, CX } = getDim(ctx);
   ctx.save();
 
-  // 1. 좌상단: 열쇠 소지 상태 배지
-  const badgeW = 95;
-  const badgeH = 26;
-  const badgeX = 26;
-  const badgeY = 26;
+  // 1. 좌상단 외곽: 열쇠 소지 상태 배지 (상단 석벽 영역에 배치하여 플레이어 이동 공간과 분리)
+  const keyText = hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE';
+  ctx.font = 'bold 11px "JetBrains Mono", monospace';
+  const badgeW = Math.max(114, Math.ceil(ctx.measureText(keyText).width) + 28);
+  const badgeH = 22;
+  const badgeX = 6;
+  const badgeY = 4;
 
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
   ctx.strokeStyle = hasKey ? '#eab308' : '#475569';
   ctx.lineWidth = 1.5;
   ctx.shadowColor = hasKey ? '#eab308' : 'transparent';
@@ -877,18 +921,55 @@ export function drawHUD(ctx, hasKey, isMuted) {
   ctx.stroke();
 
   ctx.shadowBlur = 0;
-  ctx.font = 'bold 11.5px "JetBrains Mono", monospace';
   ctx.fillStyle = hasKey ? '#fef08a' : '#94a3b8';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE', badgeX + badgeW / 2, badgeY + badgeH / 2);
+  ctx.fillText(keyText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
 
-  // 2. 우상단: 사운드 및 미니맵 단축키 힌트
-  const soundText = isMuted ? '🔇 MUTE' : '🔊 SFX';
+  // 2. 우상단 외곽: 미니맵 및 사운드 단축키 배지 (좌우 패딩 여유 확보 및 외곽 배치)
+  const hintText = `🗺️ [M] MAP  |  ${isMuted ? '🔇 [U] MUTE' : '🔊 [U] SFX'}`;
   ctx.font = '10.5px "JetBrains Mono", monospace';
-  ctx.fillStyle = '#64748b';
-  ctx.textAlign = 'right';
-  ctx.fillText(`🗺️ [M] MAP  |  ${soundText}`, W - 28, 42);
+  const hintW = Math.max(196, Math.ceil(ctx.measureText(hintText).width) + 36);
+  const hintH = 22;
+  const hintX = W - 6 - hintW;
+  const hintY = 4;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.28)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, hintX, hintY, hintW, hintH, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(hintText, hintX + hintW / 2, hintY + hintH / 2 + 0.5);
+
+  // 3. 잠긴 탈출문 충돌 시 상단 경고 토스트
+  if (lockedAlertTimer > 0) {
+    const alpha = Math.min(1, lockedAlertTimer / 15);
+    const toastW = 216;
+    const toastH = 26;
+    const toastX = CX - toastW / 2;
+    const toastY = 32;
+
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(69, 10, 10, 0.9)';
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 10;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.font = '600 12px "Outfit", sans-serif';
+    ctx.fillStyle = '#fecaca';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔒 황금 열쇠가 필요합니다', CX, toastY + toastH / 2);
+  }
 
   ctx.restore();
 }
@@ -898,15 +979,18 @@ export function drawHUD(ctx, hasKey, isMuted) {
  */
 export function drawPrompt(ctx, promptData) {
   const { CX, CY } = getDim(ctx);
+  const now = Date.now();
+  const floatOffset = Math.sin(now / 180) * 2.5;
+
   ctx.save();
 
-  const boxW = 140;
+  const boxW = 146;
   const boxH = 68;
   const boxX = CX - boxW / 2;
-  const boxY = CY - boxH / 2;
+  const boxY = CY - boxH / 2 + floatOffset;
 
-  ctx.fillStyle = 'rgba(11, 14, 20, 0.9)';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+  ctx.fillStyle = 'rgba(11, 14, 20, 0.92)';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
   ctx.shadowBlur = 20;
   roundRect(ctx, boxX, boxY, boxW, boxH, 10);
   ctx.fill();
@@ -932,7 +1016,7 @@ export function drawPrompt(ctx, promptData) {
   ctx.fillStyle = '#1e293b';
   roundRect(ctx, keyX, keyY, keyW, keyH, 5);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
   ctx.lineWidth = 1;
   roundRect(ctx, keyX, keyY, keyW, keyH, 5);
   ctx.stroke();
@@ -943,9 +1027,15 @@ export function drawPrompt(ctx, promptData) {
   ctx.textBaseline = 'middle';
   ctx.fillText('SPACE', CX, keyY + keyH / 2);
 
-  ctx.font = '600 14px "Outfit", sans-serif';
+  const dirArrow = promptData.dir === 'up' ? '↑ ' :
+    promptData.dir === 'down' ? '↓ ' :
+    promptData.dir === 'left' ? '← ' :
+    promptData.dir === 'right' ? '→ ' : '';
+  const actionLabel = promptData.willOpenNew ? `${dirArrow}방 개척` : `${dirArrow}방 이동`;
+
+  ctx.font = '600 13.5px "Outfit", sans-serif';
   ctx.fillStyle = '#ffffff';
-  ctx.fillText('방 이동', CX, boxY + 50);
+  ctx.fillText(actionLabel, CX, boxY + 49);
 
   ctx.restore();
 }

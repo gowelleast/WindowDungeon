@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 import { MSG } from './protocol.js';
 import { DungeonChannel } from './channel.js';
-import { cellId as getCellId, cellToScreenRect, isCellValid } from './grid.js';
+import { cellId as getCellId, cellToScreenRect, getSlotSize, isCellValid, parseCellId } from './grid.js';
 
 const channel = new DungeonChannel('master-worker');
 
@@ -81,7 +81,7 @@ function getAdjacentCell(screenLabel, gx, gy, dir) {
     if (dir === 'up' && dy < 0 && Math.abs(dy) >= Math.abs(dx)) isValidTarget = true;
 
     if (isValidTarget) {
-      const dist = Math.sqrt((sCx - currentCx)**2 + (sCy - currentCy)**2);
+      const dist = Math.hypot(sCx - currentCx, sCy - currentCy);
       if (dist < minDistance) {
         minDistance = dist;
         targetScreen = s;
@@ -92,17 +92,18 @@ function getAdjacentCell(screenLabel, gx, gy, dir) {
   if (targetScreen) {
     let mappedGx = 0;
     let mappedGy = 0;
+    const { slotW, slotH } = getSlotSize(CONFIG);
     
-    const maxGx = Math.floor(targetScreen.availWidth / CONFIG.ROOM_OUTER_W) - 1;
-    const maxGy = Math.floor(targetScreen.availHeight / CONFIG.ROOM_OUTER_H) - 1;
+    const maxGx = Math.floor(targetScreen.availWidth / slotW) - 1;
+    const maxGy = Math.floor(targetScreen.availHeight / slotH) - 1;
 
     const alignY = () => {
-      let y = Math.floor((gy * CONFIG.ROOM_OUTER_H + currentScreen.availTop - targetScreen.availTop) / CONFIG.ROOM_OUTER_H);
+      let y = Math.floor((gy * slotH + currentScreen.availTop - targetScreen.availTop) / slotH);
       return Math.max(0, Math.min(y, maxGy));
     };
 
     const alignX = () => {
-      let x = Math.floor((gx * CONFIG.ROOM_OUTER_W + currentScreen.availLeft - targetScreen.availLeft) / CONFIG.ROOM_OUTER_W);
+      let x = Math.floor((gx * slotW + currentScreen.availLeft - targetScreen.availLeft) / slotW);
       return Math.max(0, Math.min(x, maxGx));
     };
 
@@ -318,6 +319,17 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   if (player.cellId === exitCellId) exitDiscovered = true;
   if (player.cellId === keyCellId) keyDiscovered = true;
 
+  const nextCell = cellMap.get(nextId);
+  if (nextCell) {
+    channel.send(MSG.ASSIGN, {
+      ...nextCell,
+      isExitRoom: (nextCell.id === exitCellId),
+      isKeyRoom: (nextCell.id === keyCellId),
+      hasKey,
+      isMuted
+    });
+  }
+
   // 플레이어가 문을 통해 다른 방으로 도망치면, 몬스터가 즉시 따라오지 못하도록 4초간 딜레이 부여 (따돌리기 성공)
   monster.wanderCooldown = Math.max(monster.wanderCooldown, 120);
 
@@ -365,15 +377,10 @@ function updateMonsterAI() {
   const isSameRoom = (monster.cellId === player.cellId);
 
   // 현재 몬스터가 위치한 셀 좌표 파악 (cellId 형식: "label:gx,gy")
-  const lastColonIndex = monster.cellId.lastIndexOf(':');
-  let mScreenLabel = '';
-  let mGx = 0, mGy = 0;
-  if (lastColonIndex !== -1) {
-    mScreenLabel = monster.cellId.substring(0, lastColonIndex);
-    const coords = monster.cellId.substring(lastColonIndex + 1).split(',');
-    mGx = parseInt(coords[0], 10) || 0;
-    mGy = parseInt(coords[1], 10) || 0;
-  }
+  const parsedMonsterCell = parseCellId(monster.cellId);
+  const mScreenLabel = parsedMonsterCell ? parsedMonsterCell.screenLabel : '';
+  const mGx = parsedMonsterCell ? parsedMonsterCell.gx : 0;
+  const mGy = parsedMonsterCell ? parsedMonsterCell.gy : 0;
 
   // 플레이어와의 셀 거리 계산
   let pGx = 0, pGy = 0;
@@ -606,7 +613,7 @@ setInterval(() => {
 
   // 1. 황금 열쇠 획득 판정
   if (!hasKey && player.cellId === keyCellId) {
-    const distToKey = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
+    const distToKey = Math.hypot(player.lx - cx, player.ly - cy);
     if (distToKey < player.radius + 22) {
       hasKey = true;
       keyDiscovered = true;
@@ -618,7 +625,7 @@ setInterval(() => {
   // 2. 잠긴 탈출문 도달 판정
   if (player.cellId === exitCellId) {
     exitDiscovered = true;
-    const distToExit = Math.sqrt((player.lx - cx)**2 + (player.ly - cy)**2);
+    const distToExit = Math.hypot(player.lx - cx, player.ly - cy);
     
     if (distToExit < player.radius + 24) {
       if (hasKey) {
@@ -714,6 +721,8 @@ setInterval(() => {
     activeCellId: player.cellId,
     lx: player.lx,
     ly: player.ly,
+    vx: player.vx,
+    vy: player.vy,
     facing: player.facing,
     isStunned: player.stunTimer > 0,
     isInvulnerable: player.invulnerableTimer > 0,
