@@ -15,7 +15,8 @@ const player = {
   ly: CONFIG.ROOM_OUTER_H / 2,
   vx: 0, vy: 0, speed: CONFIG.PLAYER_SPEED || 6, radius: 15, facing: 'down',
   kx: 0, ky: 0,
-  stunTimer: 0 // 피격 시 일시 스턴 틱 카운터
+  stunTimer: 0, // 피격 시 일시 스턴 틱 카운터 (약 0.45초)
+  invulnerableTimer: 0 // 피격 후 무적 시간 틱 카운터 (2.5초간 무적)
 };
 
 // 열쇠 & 탈출문 상태
@@ -36,6 +37,7 @@ const monster = {
   radius: 16,
   state: 'wandering', // 'wandering' | 'chasing'
   wanderCooldown: 0,
+  attackCooldown: 0, // 플레이어 타격 후 멈칫하는 후딜레이 (1.5초)
   facing: 'down'
 };
 
@@ -370,32 +372,49 @@ function updateMonsterAI() {
 
   if (isSameRoom) {
     // 1. 같은 방에 있을 때: 플레이어를 향해 서서히 이동
-    const mdx = player.lx - monster.lx;
-    const mdy = player.ly - monster.ly;
-    const dist = Math.sqrt(mdx * mdx + mdy * mdy);
-
-    if (dist > 5) {
-      monster.vx = (mdx / dist) * monster.speed;
-      monster.vy = (mdy / dist) * monster.speed;
+    if (monster.attackCooldown > 0) {
+      // 공격 후 1.5초간 일시 경직 및 감쇠 (플레이어가 도망칠 수 있도록)
+      monster.attackCooldown--;
+      monster.vx *= 0.8;
+      monster.vy *= 0.8;
       monster.lx += monster.vx;
       monster.ly += monster.vy;
-    }
-
-    if (Math.abs(mdx) > Math.abs(mdy)) {
-      monster.facing = mdx > 0 ? 'right' : 'left';
     } else {
-      monster.facing = mdy > 0 ? 'down' : 'up';
-    }
+      const mdx = player.lx - monster.lx;
+      const mdy = player.ly - monster.ly;
+      const dist = Math.sqrt(mdx * mdx + mdy * mdy);
 
-    // 플레이어 피격 충돌 검사
-    if (dist < player.radius + monster.radius) {
-      if (player.stunTimer <= 0) {
-        player.stunTimer = 30; // 1초간 스턴
-        // 피격 넉백 (몬스터 반대 방향으로 튕겨나감)
-        const angle = Math.atan2(player.ly - monster.ly, player.lx - monster.lx);
-        player.kx = Math.cos(angle) * 14;
-        player.ky = Math.sin(angle) * 14;
-        channel.send(MSG.MONSTER_HIT, { activeCellId: player.cellId });
+      if (dist > 5) {
+        monster.vx = (mdx / dist) * monster.speed;
+        monster.vy = (mdy / dist) * monster.speed;
+        monster.lx += monster.vx;
+        monster.ly += monster.vy;
+      }
+
+      if (Math.abs(mdx) > Math.abs(mdy)) {
+        monster.facing = mdx > 0 ? 'right' : 'left';
+      } else {
+        monster.facing = mdy > 0 ? 'down' : 'up';
+      }
+
+      // 플레이어 피격 충돌 검사 (무적 시간 아닐 때만 피격 발생)
+      if (dist < player.radius + monster.radius) {
+        if (player.invulnerableTimer <= 0) {
+          player.stunTimer = 14; // 약 0.45초간 짧은 스턴 (빠른 조작권 회복)
+          player.invulnerableTimer = 75; // 2.5초간 완전 무적 (연속 피격 및 무한 공격 완벽 방지)
+          monster.attackCooldown = 45; // 몬스터 공격 후 1.5초간 멈칫
+
+          // 피격 넉백 (플레이어는 반대 방향으로 튕겨나감)
+          const angle = Math.atan2(player.ly - monster.ly, player.lx - monster.lx);
+          player.kx = Math.cos(angle) * 16;
+          player.ky = Math.sin(angle) * 16;
+
+          // 몬스터도 반작용으로 살짝 밀려남
+          monster.vx = -Math.cos(angle) * 3;
+          monster.vy = -Math.sin(angle) * 3;
+
+          channel.send(MSG.MONSTER_HIT, { activeCellId: player.cellId });
+        }
       }
     }
   } else if (monster.state === 'chasing' && cellDist === 1) {
@@ -479,6 +498,10 @@ setInterval(() => {
   // 스턴 중에는 플레이어 키 입력 불가
   if (player.stunTimer > 0) {
     player.stunTimer--;
+  }
+  // 무적 시간 카운트다운
+  if (player.invulnerableTimer > 0) {
+    player.invulnerableTimer--;
   }
 
   let dx = 0; let dy = 0;
@@ -672,6 +695,7 @@ setInterval(() => {
     ly: player.ly,
     facing: player.facing,
     isStunned: player.stunTimer > 0,
+    isInvulnerable: player.invulnerableTimer > 0,
     hasKey,
     exitCellId,
     keyCellId,

@@ -464,7 +464,7 @@ export function drawMonster(ctx, monster) {
  * - 피격 시 귀여운 >_< 표정 연출
  */
 export function drawPlayer(ctx, playerState) {
-  const { lx, ly, facing, isStunned } = playerState;
+  const { lx, ly, facing, isStunned, isInvulnerable } = playerState;
   const radius = playerState.radius || 15;
   const now = Date.now();
   const isMoving = (playerState.vx !== 0 || playerState.vy !== 0);
@@ -485,9 +485,26 @@ export function drawPlayer(ctx, playerState) {
   // 3. 랜턴 전방 조명 빔
   drawLanternBeam(ctx, lx, py, facing);
 
-  // 스턴 피격 시 깜빡임 연출
-  if (isStunned && Math.floor(now / 60) % 2 === 0) {
-    ctx.globalAlpha = 0.45;
+  // 스턴 피격 또는 무적 시간 시 반투명 깜빡임 연출 (i-frames flicker)
+  if (isStunned) {
+    if (Math.floor(now / 60) % 2 === 0) ctx.globalAlpha = 0.45;
+  } else if (isInvulnerable) {
+    if (Math.floor(now / 80) % 2 === 0) ctx.globalAlpha = 0.4;
+  }
+
+  // 무적 보호막 회전 링 (Golden Shield Ring)
+  if (isInvulnerable) {
+    ctx.save();
+    ctx.strokeStyle = '#fef08a';
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.lineDashOffset = -now / 25;
+    ctx.beginPath();
+    ctx.arc(lx, py, radius + 5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // 4. 등 뒤의 꼬마 모험가 망토 (Cape)
