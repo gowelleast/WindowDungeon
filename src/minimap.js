@@ -80,16 +80,18 @@ export function initMinimap(channel) {
     }),
   ];
 
-  // 런처 화면 내에서 직접 M / ㅡ 키 입력 시에도 토글
-  const onLauncherKey = (e) => {
-    const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
-    if (isM && !e.repeat) {
-      e.preventDefault();
-      togglePipMinimap(window, channel);
-    }
-  };
-  window.addEventListener('keydown', onLauncherKey);
-  unsubscribers.push(() => window.removeEventListener('keydown', onLauncherKey));
+  // 런처 화면 내에서 직접 M / ㅡ 키 입력 시에도 토글 (런처 창에만 적용)
+  if (launcherCanvas) {
+    const onLauncherKey = (e) => {
+      const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
+      if (isM && !e.repeat) {
+        e.preventDefault();
+        togglePipMinimap(window, channel);
+      }
+    };
+    window.addEventListener('keydown', onLauncherKey);
+    unsubscribers.push(() => window.removeEventListener('keydown', onLauncherKey));
+  }
 
   // 런처 화면 PiP 수동 버튼 바인딩
   const btnPip = document.getElementById('btn-pip');
@@ -119,18 +121,28 @@ export function isPipWindowOpen(targetWindow = window) {
   return isRemotePipOpen;
 }
 
+let isToggling = false;
+
 /** PiP 미니맵 토글 (M 키 입력 시 활성 창에서 직접 호출) */
 export async function togglePipMinimap(targetWindow = window, channel = null) {
-  const ch = channel || currentChannel;
+  if (isToggling) return;
+  isToggling = true;
 
-  // 이미 열려 있으면 닫기
-  if (isPipWindowOpen(targetWindow)) {
-    closePipMinimap(targetWindow, ch);
-    return;
+  try {
+    const ch = channel || currentChannel;
+
+    // 이미 열려 있으면 닫기
+    if (isPipWindowOpen(targetWindow)) {
+      closePipMinimap(targetWindow, ch);
+    } else {
+      // 닫혀 있으면 큼직하고 시원한 350x260 창으로 오픈
+      await openPipMinimap(targetWindow, ch);
+    }
+  } finally {
+    setTimeout(() => {
+      isToggling = false;
+    }, 300);
   }
-
-  // 닫혀 있으면 큼직하고 시원한 350x260 창으로 오픈
-  await openPipMinimap(targetWindow, ch);
 }
 
 /** Document Picture-in-Picture 미니맵 창 열기 (시원하고 넓은 350x260 해상도) */

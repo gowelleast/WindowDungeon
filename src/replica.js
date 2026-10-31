@@ -119,10 +119,6 @@ channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
   sound.setMute(data.isMuted);
 });
 
-channel.on(MSG.PIP_CLOSE, () => {
-  closePipMinimap(window, channel);
-});
-
 // 3. 메인 렌더링 틱
 channel.on(MSG.TICK, (data) => {
   if (!myCellId || isVictory) return;
