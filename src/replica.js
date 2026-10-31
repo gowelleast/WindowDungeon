@@ -224,14 +224,14 @@ window.addEventListener('keydown', (e) => {
         targetLeft = curX + curW;
         targetTop = curY;
       } else if (dir === 'left') {
-        targetLeft = curX - w;
+        targetLeft = curX - curW;
         targetTop = curY;
       } else if (dir === 'down') {
         targetLeft = curX;
         targetTop = curY + curH;
       } else if (dir === 'up') {
         targetLeft = curX;
-        targetTop = curY - h;
+        targetTop = curY - curH;
       }
 
       targetLeft = Math.round(targetLeft);

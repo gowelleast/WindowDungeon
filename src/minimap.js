@@ -202,15 +202,43 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
     if (btnClose) {
       btnClose.addEventListener('click', () => {
         closePipMinimap(targetWindow, ch);
+        try { targetWindow.focus(); } catch (e) {}
       });
     }
 
-    // PiP 창 내부에서 M, ㅡ, ESC 입력 시 즉시 닫기
-    pipWin.addEventListener('keydown', (e) => {
+    // PiP 창이 포커스를 잡고 있더라도 방향키, WASD, 스페이스바 입력을 게임으로 완벽 중계
+    const pipKeys = new Set();
+    const handlePipKey = (e, isDown) => {
       const isM = e.code === 'KeyM' || e.key.toLowerCase() === 'm' || e.key === 'ㅡ';
       if (isM || e.key === 'Escape') {
+        if (isDown) {
+          e.preventDefault();
+          closePipMinimap(targetWindow, ch);
+          try { targetWindow.focus(); } catch (err) {}
+        }
+        return;
+      }
+
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
         e.preventDefault();
-        closePipMinimap(targetWindow, ch);
+        const keyName = e.key.toLowerCase();
+        if (isDown) {
+          pipKeys.add(keyName);
+        } else {
+          pipKeys.delete(keyName);
+        }
+        if (ch) {
+          ch.send(MSG.INPUT, { keys: Array.from(pipKeys) });
+        }
+      }
+    };
+
+    pipWin.addEventListener('keydown', (e) => handlePipKey(e, true));
+    pipWin.addEventListener('keyup', (e) => handlePipKey(e, false));
+    pipWin.addEventListener('blur', () => {
+      if (pipKeys.size > 0) {
+        pipKeys.clear();
+        if (ch) ch.send(MSG.INPUT, { keys: [] });
       }
     });
 
@@ -222,10 +250,18 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
       isRemotePipOpen = false;
       if (ch) ch.send(MSG.PIP_STATE, { isOpen: false });
       updateMetrics();
+      try { targetWindow.focus(); } catch (e) {}
     });
 
     renderAllMinimaps();
     updateMetrics();
+
+    // PiP 창 오픈 직후 방 창으로 포커스 복원 (캐릭터 즉시 이동 가능)
+    setTimeout(() => {
+      try {
+        targetWindow.focus();
+      } catch (e) {}
+    }, 60);
 
   } catch (err) {
     console.warn('[Minimap] Document PiP 열기 실패/취소:', err);
@@ -254,6 +290,7 @@ export function closePipMinimap(targetWindow = window, channel = null) {
   pipCanvas = null;
   pipCtx = null;
   updateMetrics();
+  try { targetWindow.focus(); } catch (e) {}
 }
 
 /** 부모 창의 스타일시트를 PiP 윈도우에 전달 */
