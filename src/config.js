@@ -26,18 +26,34 @@ export const CONFIG = {
  * @param {number} minWidth 방의 최소 허용 너비 (기본 380px)
  */
 export function computeDynamicRoomSize(availWidth, availHeight, minWidth = 380, overheadY = CONFIG.CHROME_OVERHEAD_Y, overheadX = CONFIG.CHROME_OVERHEAD_X) {
-  let cols = Math.round(availWidth / 480);
-  if (cols <= 0 || availWidth / cols < minWidth) {
-    cols = Math.max(1, Math.floor(availWidth / minWidth));
+  // 가로: 화면 가용 해상도에 맞춘 균등 열(cols) 분할
+  let cols;
+  if (availWidth >= 2400) {
+    cols = 5;
+  } else if (availWidth >= 1800) {
+    cols = 4;
+  } else if (availWidth >= 1150) {
+    cols = 3;
+  } else {
+    cols = 2;
   }
-  // 화면 격자 슬롯 폭 및 내부 컨텐츠 폭
+
   const slotW = Math.floor(availWidth / cols);
   const roomW = Math.max(300, slotW - overheadX);
 
-  // 세로: 브라우저 외곽 높이 기준 약 360~400px으로 균등 분할
-  let rows = Math.round(availHeight / 400);
-  rows = Math.max(1, rows);
-  
+  // 세로: 화면 가용 해상도에 맞춘 균등 행(rows) 분할
+  // 맥북(약 750~950px 가용 높이)에서는 2행을 보장하여 아래 빈 공간 없이 꽉 채움!
+  let rows;
+  if (availHeight >= 1300) {
+    rows = 4;
+  } else if (availHeight >= 960) {
+    rows = 3;
+  } else if (availHeight >= 550) {
+    rows = 2;
+  } else {
+    rows = 1;
+  }
+
   // 전체 가용 높이를 rows로 정확히 N등분한 물리 슬롯 높이! (외곽 전체가 차지할 높이)
   const slotH = Math.floor(availHeight / rows);
   // window.open의 height 파라미터(내부 컨텐츠) = 슬롯 높이 - 타이틀바/주소창 오버헤드

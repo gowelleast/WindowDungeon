@@ -20,8 +20,8 @@ export function isCellValid(screen, gx, gy, cfg) {
   return (
     left >= screen.availLeft &&
     top >= screen.availTop &&
-    left + slotW <= screen.availLeft + screen.availWidth &&
-    top + slotH <= screen.availTop + screen.availHeight
+    left + slotW <= screen.availLeft + screen.availWidth + 2 &&
+    top + slotH <= screen.availTop + screen.availHeight + 2
   );
 }
 
