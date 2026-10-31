@@ -178,23 +178,34 @@ function generateDungeonEntities(startScreenLabel, startGx, startGy) {
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
 
-    // 1. 잠긴 탈출문
+    // 1. 잠긴 탈출문 (거리 1~2 방 중 랜덤)
     exitCellId = pool[0].id;
 
-    // 2. 황금 열쇠 (탈출문과 다른 방에 우선 배치)
+    // 2. 황금 열쇠 (탈출문과 다른 거리 1~2 방에 우선 배치)
     if (pool.length > 1) {
       keyCellId = pool[1].id;
     } else {
       keyCellId = pool[0].id;
     }
 
-    // 3. 몬스터 (로비가 아닌 다른 방에 배치)
-    const monsterTarget = (pool.length > 2) ? pool[2] : (pool.length > 1 ? pool[1] : pool[0]);
+    // 3. 몬스터: 시작하자마자 로비로 들이닥치지 않도록, 로비(dist 0) 및 바로 옆방(dist 1)을 피해 거리 2 이상의 먼 방에 배치!
+    const farCandidates = reachableCells.filter(c => c.dist >= 2);
+    let monsterTarget = null;
+    if (farCandidates.length > 0) {
+      monsterTarget = farCandidates[Math.floor(Math.random() * farCandidates.length)];
+    } else {
+      // 맵이 작은 경우 가장 먼 방 선택
+      const sortedByDist = [...reachableCells].sort((a, b) => b.dist - a.dist);
+      monsterTarget = sortedByDist[0];
+    }
+
     monster.cellId = monsterTarget.id;
     monster.lx = CONFIG.ROOM_OUTER_W / 2;
     monster.ly = CONFIG.ROOM_OUTER_H / 2;
+    monster.state = 'wandering';
+    monster.wanderCooldown = 180; // 게임 시작 직후 6초간 순찰 대기 (충분한 탐험 시작 시간 확보)
 
-    console.log("[Master] Entity Placement 완료 (랜덤/근접) -> Exit:", exitCellId, "Key:", keyCellId, "Monster:", monster.cellId);
+    console.log("[Master] Entity Placement 완료 -> Exit:", exitCellId, "Key:", keyCellId, "Monster:", monster.cellId, "(dist:", monsterTarget.dist + ")");
   }
 }
 
@@ -284,6 +295,9 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   if (player.cellId === exitCellId) exitDiscovered = true;
   if (player.cellId === keyCellId) keyDiscovered = true;
 
+  // 플레이어가 문을 통해 다른 방으로 도망치면, 몬스터가 즉시 따라오지 못하도록 4초간 딜레이 부여 (따돌리기 성공)
+  monster.wanderCooldown = Math.max(monster.wanderCooldown, 120);
+
   keys.clear();
   player.vx = 0; player.vy = 0;
   player.kx = 0; player.ky = 0;
@@ -318,8 +332,9 @@ let lastPromptDir = null;
 
 /**
  * 몬스터 AI 업데이트:
- * - 미개척 방이라도 가상 그리드 상에서 1.5~2초마다 인접 방으로 Wandering 순찰
- * - 플레이어와 같은 방이거나 1칸 거리면 Chasing 모드로 전환하여 추적
+ * - 미지의 방 순찰(Wandering) 및 인접 시 추적(Chasing)
+ * - 방에 진입할 때는 방 한가운데 텔레포트가 아니라, 반드시 문(Door)을 통해 걸어 들어옴!
+ * - 플레이어가 다른 방으로 도망가면 4~5초간 탐색 여유를 주며, 따돌릴 수 있도록 밸런싱
  */
 function updateMonsterAI() {
   if (!monster.cellId || isVictory) return;
@@ -346,7 +361,7 @@ function updateMonsterAI() {
   }
   const cellDist = Math.abs(mGx - pGx) + Math.abs(mGy - pGy);
 
-  // 상태 전환: 같은 방이거나 1칸 이내면 추적!
+  // 상태 전환: 같은 방이거나 1칸 이내면 추적 상태!
   if (isSameRoom || cellDist <= 1) {
     monster.state = 'chasing';
   } else {
@@ -354,7 +369,7 @@ function updateMonsterAI() {
   }
 
   if (isSameRoom) {
-    // 1. 같은 방에 있을 때: 플레이어를 향해 직접 이동
+    // 1. 같은 방에 있을 때: 플레이어를 향해 서서히 이동
     const mdx = player.lx - monster.lx;
     const mdy = player.ly - monster.ly;
     const dist = Math.sqrt(mdx * mdx + mdy * mdy);
@@ -384,27 +399,68 @@ function updateMonsterAI() {
       }
     }
   } else if (monster.state === 'chasing' && cellDist === 1) {
-    // 2. 인접한 방에서 플레이어 방으로 문을 건너오는 중
+    // 2. 인접한 방에서 플레이어 방으로 이동을 시도하는 중
     monster.wanderCooldown -= 1;
     if (monster.wanderCooldown <= 0) {
-      monster.wanderCooldown = 45; // 1.5초 딜레이
-      monster.cellId = player.cellId; // 플레이어 방으로 진입!
-      monster.lx = CONFIG.ROOM_OUTER_W / 2;
-      monster.ly = CONFIG.ROOM_OUTER_H / 2;
+      monster.wanderCooldown = 135; // 다음 방 이동 쿨다운 약 4.5초
+
+      // 플레이어가 도망쳤을 때 따돌릴 수 있도록 65% 확률로 추적, 35%는 다른 방으로 방황
+      const shouldFollow = Math.random() < 0.65;
+
+      if (shouldFollow) {
+        // 플레이어 방으로 문을 통해 걸어 들어옴 (방 한가운데 스폰 금지!)
+        const prevGx = mGx;
+        const prevGy = mGy;
+        monster.cellId = player.cellId;
+
+        const doorMargin = 38;
+        if (prevGx > pGx) {
+          // 오른쪽 방에서 건너옴 -> 오른쪽 문 안쪽에서 등장
+          monster.lx = CONFIG.ROOM_OUTER_W - doorMargin;
+          monster.ly = CONFIG.ROOM_OUTER_H / 2;
+          monster.facing = 'left';
+        } else if (prevGx < pGx) {
+          // 왼쪽 방에서 건너옴 -> 왼쪽 문 안쪽에서 등장
+          monster.lx = doorMargin;
+          monster.ly = CONFIG.ROOM_OUTER_H / 2;
+          monster.facing = 'right';
+        } else if (prevGy > pGy) {
+          // 아래쪽 방에서 건너옴 -> 아래쪽 문 안쪽에서 등장
+          monster.lx = CONFIG.ROOM_OUTER_W / 2;
+          monster.ly = CONFIG.ROOM_OUTER_H - doorMargin;
+          monster.facing = 'up';
+        } else if (prevGy < pGy) {
+          // 위쪽 방에서 건너옴 -> 위쪽 문 안쪽에서 등장
+          monster.lx = CONFIG.ROOM_OUTER_W / 2;
+          monster.ly = doorMargin;
+          monster.facing = 'down';
+        }
+      } else {
+        // 다른 인접 방으로 방황 (따돌리기 성공)
+        const dirs = ['up', 'down', 'left', 'right'];
+        const randomDir = dirs[Math.floor(Math.random() * dirs.length)];
+        const adj = getAdjacentCell(mScreenLabel, mGx, mGy, randomDir);
+        if (adj) {
+          monster.cellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+        }
+      }
     }
   } else {
     // 3. 미지의 가상 방에서 자유 순찰 (Wandering)
     monster.wanderCooldown -= 1;
     if (monster.wanderCooldown <= 0) {
-      monster.wanderCooldown = 60 + Math.floor(Math.random() * 30); // 2~3초마다 다음 방으로
+      monster.wanderCooldown = 90 + Math.floor(Math.random() * 45); // 3~4.5초마다 다음 방으로
       
       const dirs = ['up', 'down', 'left', 'right'];
       const randomDir = dirs[Math.floor(Math.random() * dirs.length)];
       const adj = getAdjacentCell(mScreenLabel, mGx, mGy, randomDir);
       if (adj) {
         monster.cellId = getCellId(adj.screen.label, adj.gx, adj.gy);
-        monster.lx = CONFIG.ROOM_OUTER_W / 2;
-        monster.ly = CONFIG.ROOM_OUTER_H / 2;
+        const doorMargin = 38;
+        if (randomDir === 'right') { monster.lx = doorMargin; monster.ly = CONFIG.ROOM_OUTER_H / 2; }
+        else if (randomDir === 'left') { monster.lx = CONFIG.ROOM_OUTER_W - doorMargin; monster.ly = CONFIG.ROOM_OUTER_H / 2; }
+        else if (randomDir === 'down') { monster.lx = CONFIG.ROOM_OUTER_W / 2; monster.ly = doorMargin; }
+        else if (randomDir === 'up') { monster.lx = CONFIG.ROOM_OUTER_W / 2; monster.ly = CONFIG.ROOM_OUTER_H - doorMargin; }
       }
     }
   }
