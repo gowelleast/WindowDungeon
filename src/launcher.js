@@ -138,11 +138,19 @@ document.getElementById('btn-start').addEventListener('click', async () => {
       details.removeEventListener('currentscreenchange', updateScreens);
     });
   } else {
+    const sLeft = (window.screen && window.screen.availLeft !== undefined) ? window.screen.availLeft : 0;
+    const sTop = (window.screen && window.screen.availTop !== undefined) ? window.screen.availTop : 0;
     screens = [{
-      label: 'Fallback Screen', availLeft: 0, availTop: 0,
-      availWidth: window.screen.availWidth, availHeight: window.screen.availHeight, isPrimary: true
+      label: 'Fallback Screen',
+      availLeft: sLeft,
+      availTop: sTop,
+      availWidth: window.screen.availWidth,
+      availHeight: window.screen.availHeight,
+      isPrimary: true
     }];
     currentScreenLabel = 'Fallback Screen';
+    left = sLeft;
+    top = sTop;
   }
 
   // 동기적 유저 제스처 내에서 첫 번째 팝업(로비 방) 열기

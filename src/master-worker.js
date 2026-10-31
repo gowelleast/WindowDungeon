@@ -139,7 +139,8 @@ let lastLockedDoorNotify = 0;
 
 /**
  * 게임 시작 시 BFS로 던전 전체 가상 그리드를 파악하고
- * [황금 열쇠], [잠긴 탈출문], [순찰 몬스터]의 초기 위치를 각각 서로 먼 방으로 확정 배치합니다.
+ * [황금 열쇠], [잠긴 탈출문], [순찰 몬스터]의 초기 위치를 로비 근처(거리 1~2 또는 3)에서 랜덤하게 배치합니다.
+ * (1분 세미나 시연에 최적화: 너무 멀리 가지 않고 1~2방 내에서 탐험·발견 가능)
  */
 function generateDungeonEntities(startScreenLabel, startGx, startGy) {
   const visited = new Set();
@@ -167,25 +168,33 @@ function generateDungeonEntities(startScreenLabel, startGx, startGy) {
   }
 
   if (reachableCells.length > 0) {
-    // 거리가 먼 순서로 정렬
-    reachableCells.sort((a, b) => b.dist - a.dist);
+    // 세미나 1분 컷 최적화: 거리 1~2인 가까운 방들을 최우선 후보군으로 구성
+    const closeCandidates = reachableCells.filter(c => c.dist >= 1 && c.dist <= 2);
+    const pool = (closeCandidates.length >= 2) ? [...closeCandidates] : [...reachableCells];
 
-    // 1. 잠긴 탈출문 (가장 먼 방 중 하나)
-    exitCellId = reachableCells[0].id;
-
-    // 2. 황금 열쇠 (탈출문과 다른 방향 또는 중간~먼 거리 방)
-    if (reachableCells.length > 1) {
-      keyCellId = reachableCells[reachableCells.length - 1 < 3 ? 1 : Math.floor(reachableCells.length / 2)].id;
-    } else {
-      keyCellId = reachableCells[0].id;
+    // 무작위 셔플 (Fisher-Yates)
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
     }
 
-    // 3. 몬스터 (탈출문 근처 혹은 먼 방에서 스폰)
-    monster.cellId = reachableCells[Math.min(reachableCells.length - 1, 2)].id;
+    // 1. 잠긴 탈출문
+    exitCellId = pool[0].id;
+
+    // 2. 황금 열쇠 (탈출문과 다른 방에 우선 배치)
+    if (pool.length > 1) {
+      keyCellId = pool[1].id;
+    } else {
+      keyCellId = pool[0].id;
+    }
+
+    // 3. 몬스터 (로비가 아닌 다른 방에 배치)
+    const monsterTarget = (pool.length > 2) ? pool[2] : (pool.length > 1 ? pool[1] : pool[0]);
+    monster.cellId = monsterTarget.id;
     monster.lx = CONFIG.ROOM_OUTER_W / 2;
     monster.ly = CONFIG.ROOM_OUTER_H / 2;
 
-    console.log("[Master] Entity Placement 완료 -> Exit:", exitCellId, "Key:", keyCellId, "Monster:", monster.cellId);
+    console.log("[Master] Entity Placement 완료 (랜덤/근접) -> Exit:", exitCellId, "Key:", keyCellId, "Monster:", monster.cellId);
   }
 }
 
@@ -262,11 +271,12 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   const nextId = getCellId(adj.screen.label, adj.gx, adj.gy);
   
   if (!cellMap.has(nextId)) {
+    const actualRect = data.actualRect || cellToScreenRect(adj.screen, adj.gx, adj.gy, CONFIG);
     cellMap.set(nextId, {
       id: nextId, gx: adj.gx, gy: adj.gy, screenLabel: adj.screen.label,
       doors: calculateDoors(adj.screen, adj.gx, adj.gy),
       winId: data.targetWinId,
-      rect: cellToScreenRect(adj.screen, adj.gx, adj.gy, CONFIG)
+      rect: actualRect
     });
   }
   
@@ -316,12 +326,16 @@ function updateMonsterAI() {
 
   const isSameRoom = (monster.cellId === player.cellId);
 
-  // 현재 몬스터가 위치한 셀 좌표 파악 (cellMap에 없어도 가상 그리드 계산 가능)
-  // cellId 형식: "label-gx-gy"
-  const parts = monster.cellId.split('-');
-  const mGy = parseInt(parts.pop(), 10);
-  const mGx = parseInt(parts.pop(), 10);
-  const mScreenLabel = parts.join('-');
+  // 현재 몬스터가 위치한 셀 좌표 파악 (cellId 형식: "label:gx,gy")
+  const lastColonIndex = monster.cellId.lastIndexOf(':');
+  let mScreenLabel = '';
+  let mGx = 0, mGy = 0;
+  if (lastColonIndex !== -1) {
+    mScreenLabel = monster.cellId.substring(0, lastColonIndex);
+    const coords = monster.cellId.substring(lastColonIndex + 1).split(',');
+    mGx = parseInt(coords[0], 10) || 0;
+    mGy = parseInt(coords[1], 10) || 0;
+  }
 
   // 플레이어와의 셀 거리 계산
   let pGx = 0, pGy = 0;

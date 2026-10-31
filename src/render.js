@@ -57,15 +57,7 @@ function getFloorPattern(ctx) {
 const footstepTrails = [];
 
 export function addFootstepTrail(x, y) {
-  footstepTrails.push({
-    x, y,
-    alpha: 0.65,
-    size: Math.random() * 3 + 2.5,
-    color: Math.random() > 0.4 ? '#34d399' : '#38bdf8'
-  });
-  if (footstepTrails.length > 35) {
-    footstepTrails.shift();
-  }
+  // 사용자의 요청으로 지저분한 발자국 잔상 비활성화 (정갈한 던전 바닥 유지)
 }
 
 export function drawFootstepTrails(ctx) {
@@ -106,10 +98,7 @@ export function drawRoom(ctx, roomData, activePrompt = null) {
   ctx.fillStyle = floorVignette;
   ctx.fillRect(0, 0, W, H);
 
-  // 3. 발자국 트레일 잔상 렌더링
-  drawFootstepTrails(ctx);
-
-  // 4. 3D 입체 석벽
+  // 3. 3D 입체 석벽 (지저분한 발자국 트레일 제거)
   drawWalls(ctx);
 
   // 5. 문(Doors) 렌더링
@@ -468,68 +457,197 @@ export function drawMonster(ctx, monster) {
 }
 
 /**
- * 탐험가(플레이어) 렌더링
+ * 탐험가(플레이어) 렌더링:
+ * 몬스터처럼 귀엽고 매력적인 꼬마 에메랄드 모험가 (Chibi Adventurer) 디자인
+ * - 초롱초롱한 눈망울과 볼터치, 귀여운 모험가 후드/깃털, 앙증맞은 랜턴
+ * - 이동 시 통통 튀는 바운스 애니메이션
+ * - 피격 시 귀여운 >_< 표정 연출
  */
 export function drawPlayer(ctx, playerState) {
   const { lx, ly, facing, isStunned } = playerState;
   const radius = playerState.radius || 15;
   const now = Date.now();
+  const isMoving = (playerState.vx !== 0 || playerState.vy !== 0);
 
   ctx.save();
 
-  // 스턴 피격 시 깜빡임 연출
-  if (isStunned && Math.floor(now / 60) % 2 === 0) {
-    ctx.globalAlpha = 0.4;
-  }
+  // 1. 걸음 바운스 애니메이션 (이동 시 통통 튐)
+  const bounce = isMoving ? Math.abs(Math.sin(now / 85)) * 3.5 : Math.sin(now / 350) * 0.8;
+  const py = ly - bounce;
 
-  // 1. 발자국 트레일 생성 (이동 중일 때)
-  if (playerState.vx !== 0 || playerState.vy !== 0) {
-    addFootstepTrail(lx, ly + radius - 2);
-  }
-
-  // 2. 바닥 발밑 그림자
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  // 2. 바닥 부드러운 타원형 그림자 (바운스에 맞춰 크기 자연스럽게 변화)
+  const shadowScale = isMoving ? 1 - (bounce / 12) : 1;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.beginPath();
-  ctx.ellipse(lx, ly + radius - 2, radius * 1.1, radius * 0.45, 0, 0, Math.PI * 2);
+  ctx.ellipse(lx, ly + radius - 1, radius * 1.05 * shadowScale, radius * 0.42 * shadowScale, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // 3. 랜턴 전방 조명 빔
-  drawLanternBeam(ctx, lx, ly, facing);
+  drawLanternBeam(ctx, lx, py, facing);
 
-  // 4. 플레이어 본체
-  ctx.shadowColor = isStunned ? '#f87171' : '#10b981';
+  // 스턴 피격 시 깜빡임 연출
+  if (isStunned && Math.floor(now / 60) % 2 === 0) {
+    ctx.globalAlpha = 0.45;
+  }
+
+  // 4. 등 뒤의 꼬마 모험가 망토 (Cape)
+  const capeWiggle = isMoving ? Math.sin(now / 70) * 2 : 0;
+  ctx.fillStyle = isStunned ? '#991b1b' : '#047857';
+  ctx.beginPath();
+  if (facing === 'up') {
+    // 위를 볼 때는 등 뒤 망토가 넓게 보임
+    ctx.ellipse(lx + capeWiggle * 0.5, py + 4, radius * 0.9, radius * 0.65, 0, 0, Math.PI * 2);
+  } else if (facing === 'down') {
+    // 아래를 볼 때는 뒤로 살짝 삐져나온 둥근 망토 끝
+    ctx.ellipse(lx, py + radius - 3, radius * 0.65, radius * 0.35, 0, 0, Math.PI * 2);
+  } else if (facing === 'left') {
+    // 왼쪽 볼 때는 오른편으로 망토가 날림
+    ctx.ellipse(lx + radius * 0.4 + capeWiggle, py + 2, radius * 0.6, radius * 0.5, 0.2, 0, Math.PI * 2);
+  } else if (facing === 'right') {
+    // 오른쪽 볼 때는 왼편으로 망토가 날림
+    ctx.ellipse(lx - radius * 0.4 - capeWiggle, py + 2, radius * 0.6, radius * 0.5, -0.2, 0, Math.PI * 2);
+  }
+  ctx.fill();
+
+  // 5. 모험가 본체 후드 (Chibi Emerald Hood)
+  const hoodGrad = ctx.createRadialGradient(lx - 3, py - 4, 2, lx, py, radius + 2);
+  if (isStunned) {
+    hoodGrad.addColorStop(0, '#f87171');
+    hoodGrad.addColorStop(0.7, '#dc2626');
+    hoodGrad.addColorStop(1, '#991b1b');
+    ctx.shadowColor = '#ef4444';
+  } else {
+    hoodGrad.addColorStop(0, '#34d399');
+    hoodGrad.addColorStop(0.65, '#10b981');
+    hoodGrad.addColorStop(1, '#059669');
+    ctx.shadowColor = '#10b981';
+  }
   ctx.shadowBlur = 10;
-  ctx.fillStyle = isStunned ? '#b91c1c' : '#059669';
+  ctx.fillStyle = hoodGrad;
   ctx.beginPath();
-  ctx.arc(lx, ly, radius, 0, Math.PI * 2);
+  ctx.arc(lx, py, radius, 0, Math.PI * 2);
   ctx.fill();
 
+  // 6. 후드 테두리 및 깃 장식
   ctx.shadowBlur = 0;
-  ctx.fillStyle = isStunned ? '#fca5a5' : '#34d399';
+  ctx.fillStyle = isStunned ? '#fca5a5' : '#6ee7b7';
   ctx.beginPath();
-  ctx.arc(lx, ly, radius * 0.7, 0, Math.PI * 2);
+  ctx.arc(lx, py - 1, radius * 0.78, 0, Math.PI * 2);
   ctx.fill();
 
-  // 5. 시선 방향 지시선
-  let dx = 0, dy = 0;
-  if (facing === 'up') dy = -1;
-  else if (facing === 'down') dy = 1;
-  else if (facing === 'left') dx = -1;
-  else if (facing === 'right') dx = 1;
-
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
+  // 7. 모험가 모자의 귀여운 깃털 장식 (Feather Plume)
+  ctx.save();
+  ctx.fillStyle = '#fef08a';
+  ctx.strokeStyle = '#eab308';
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(lx, ly);
-  ctx.lineTo(lx + dx * (radius + 8), ly + dy * (radius + 8));
+  ctx.ellipse(lx - radius * 0.5, py - radius * 0.7, 3, 7, -0.4, 0, Math.PI * 2);
+  ctx.fill();
   ctx.stroke();
+  ctx.restore();
 
-  ctx.fillStyle = '#f8fafc';
-  ctx.shadowColor = '#ffffff';
+  // 8. 표정 및 눈망울 (Facing에 따른 시선 & 깜찍한 눈)
+  let eyeOffsetX = 0, eyeOffsetY = 0;
+  if (facing === 'down') eyeOffsetY = 2;
+  else if (facing === 'up') eyeOffsetY = -2;
+  else if (facing === 'left') eyeOffsetX = -3;
+  else if (facing === 'right') eyeOffsetX = 3;
+
+  if (isStunned) {
+    // 😵 피격 시: 귀엽게 질끈 감긴 > < 표정
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = 'round';
+    // 왼쪽 >
+    ctx.beginPath();
+    ctx.moveTo(lx - 7, py - 1); ctx.lineTo(lx - 3, py + 1); ctx.lineTo(lx - 7, py + 3);
+    ctx.stroke();
+    // 오른쪽 <
+    ctx.beginPath();
+    ctx.moveTo(lx + 7, py - 1); ctx.lineTo(lx + 3, py + 1); ctx.lineTo(lx + 7, py + 3);
+    ctx.stroke();
+
+    // 머리 위 뿅뿅 도는 노란 별 2개
+    const starAngle = now / 150;
+    const s1x = lx + Math.cos(starAngle) * (radius + 4);
+    const s1y = py - 8 + Math.sin(starAngle) * 4;
+    const s2x = lx + Math.cos(starAngle + Math.PI) * (radius + 4);
+    const s2y = py - 8 + Math.sin(starAngle + Math.PI) * 4;
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = '#facc15';
+    ctx.fillText('✨', s1x - 4, s1y);
+    ctx.fillText('✨', s2x - 4, s2y);
+
+  } else if (facing === 'up') {
+    // ⬆️ 뒷모습: 모자 뒤통수 매듭과 깃털 꼬리
+    ctx.fillStyle = '#065f46';
+    ctx.beginPath();
+    ctx.arc(lx, py - 3, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+  } else {
+    // ⬇️ ⬅️ ➡️ 앞/옆모습: 크고 초롱초롱한 치비 눈망울 + 핑크 볼터치
+    
+    // 발그레한 핑크 볼터치 (Blush)
+    ctx.fillStyle = 'rgba(244, 114, 182, 0.45)';
+    if (facing === 'down') {
+      ctx.beginPath(); ctx.ellipse(lx - 7, py + 4, 3, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(lx + 7, py + 4, 3, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (facing === 'left') {
+      ctx.beginPath(); ctx.ellipse(lx - 7, py + 4, 3, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (facing === 'right') {
+      ctx.beginPath(); ctx.ellipse(lx + 7, py + 4, 3, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // 눈동자 (큰 타원형 흑요석빛 눈)
+    ctx.fillStyle = '#0f172a';
+    if (facing === 'down') {
+      // 정면: 양쪽 눈
+      ctx.beginPath(); ctx.ellipse(lx - 4.5, py + 0.5, 2.5, 3.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(lx + 4.5, py + 0.5, 2.5, 3.8, 0, 0, Math.PI * 2); ctx.fill();
+
+      // 초롱초롱한 화이트 하이라이트 (스파클)
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(lx - 5.2, py - 1, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx + 3.8, py - 1, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx - 3.8, py + 2, 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx + 5.2, py + 2, 0.6, 0, Math.PI * 2); ctx.fill();
+
+    } else if (facing === 'left') {
+      // 왼쪽 측면: 왼쪽 눈 크게, 오른쪽 눈 살짝
+      ctx.beginPath(); ctx.ellipse(lx - 6, py + 0.5, 2.5, 3.8, -0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(lx - 0.5, py + 0.5, 1.8, 3.2, -0.1, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(lx - 6.8, py - 1, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx - 1.2, py - 1, 0.9, 0, Math.PI * 2); ctx.fill();
+
+    } else if (facing === 'right') {
+      // 오른쪽 측면: 오른쪽 눈 크게, 왼쪽 눈 살짝
+      ctx.beginPath(); ctx.ellipse(lx + 6, py + 0.5, 2.5, 3.8, 0.1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(lx + 0.5, py + 0.5, 1.8, 3.2, 0.1, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(lx + 5.2, py - 1, 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx - 0.2, py - 1, 0.9, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  // 9. 손에 든 작은 황금 랜턴 (Mini Adventurer Lantern)
+  let lanternX = lx + (facing === 'left' ? -radius - 1 : radius + 1);
+  let lanternY = py + 4;
+  if (facing === 'up') lanternY = py - 4;
+
+  ctx.shadowColor = '#f59e0b';
   ctx.shadowBlur = 8;
+  ctx.fillStyle = '#f59e0b';
   ctx.beginPath();
-  ctx.arc(lx + dx * (radius * 0.4), ly + dy * (radius * 0.4), 3, 0, Math.PI * 2);
+  ctx.arc(lanternX, lanternY, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath();
+  ctx.arc(lanternX, lanternY, 1.8, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();

@@ -193,17 +193,53 @@ window.addEventListener('keydown', (e) => {
 
     sound.playDoorPass();
 
+    let actualRect = null;
+
     if (currentPrompt.willOpenNew) {
-      const { targetWinId, rect } = currentPrompt;
-      const w = rect.width || dynamicW;
-      const h = rect.height || dynamicH;
-      const features = `popup=yes,resizable=no,width=${w},height=${h},left=${rect.left},top=${rect.top}`;
+      const { targetWinId, rect, dir } = currentPrompt;
+      const w = Math.round((rect && rect.width) || dynamicW);
+      const h = Math.round((rect && rect.height) || dynamicH);
+
+      // 현재 방 창의 실제 화면 좌표 및 물리 크기 측정
+      const curX = (typeof window.screenX === 'number' && !isNaN(window.screenX)) ? window.screenX : (window.screenLeft || 0);
+      const curY = (typeof window.screenY === 'number' && !isNaN(window.screenY)) ? window.screenY : (window.screenTop || 0);
+      const curW = window.outerWidth || w;
+      const curH = window.outerHeight || h;
+
+      // 현재 창 바로 인접한 방향으로 새 창 배치 (오른쪽 이동 시 현재 창 바로 오른쪽에 정확히 스냅)
+      let targetLeft = rect ? rect.left : curX + curW;
+      let targetTop = rect ? rect.top : curY;
+
+      if (dir === 'right') {
+        targetLeft = curX + curW;
+        targetTop = curY;
+      } else if (dir === 'left') {
+        targetLeft = curX - w;
+        targetTop = curY;
+      } else if (dir === 'down') {
+        targetLeft = curX;
+        targetTop = curY + curH;
+      } else if (dir === 'up') {
+        targetLeft = curX;
+        targetTop = curY - h;
+      }
+
+      targetLeft = Math.round(targetLeft);
+      targetTop = Math.round(targetTop);
+      actualRect = { left: targetLeft, top: targetTop, width: w, height: h };
+
+      const features = `popup=yes,resizable=no,width=${w},height=${h},left=${targetLeft},top=${targetTop}`;
       window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}`, targetWinId, features);
     } else {
       const win = window.open('', currentPrompt.targetWinId);
       if (win) win.focus();
     }
-    channel.send(MSG.DOOR_CONFIRM, { winId, dir: currentPrompt.dir, targetWinId: currentPrompt.targetWinId });
+    channel.send(MSG.DOOR_CONFIRM, { 
+      winId, 
+      dir: currentPrompt.dir, 
+      targetWinId: currentPrompt.targetWinId,
+      actualRect
+    });
     currentPrompt = null;
     return;
   }
