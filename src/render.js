@@ -338,10 +338,10 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
   ctx.stroke();
 
   // 외곽 마법 눈금 (부드러운 회전 링)
-  const outerSpin = now * 0.0008;
+  const outerSpin = now * 0.0003;
   ctx.save();
   ctx.translate(targetCx, targetCy);
-  ctx.rotate(hasKey ? outerSpin : outerSpin * 0.3);
+  ctx.rotate(hasKey ? outerSpin : outerSpin * 0.5);
   ctx.strokeStyle = hasKey ? 'rgba(254, 240, 138, 0.45)' : 'rgba(248, 113, 113, 0.25)';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([4, 6]);
@@ -353,7 +353,7 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
 
   // 2. 포탈 내부 (열림: 황금빛 회오리 볼텍스 / 닫힘: 붉은 고대 마법 봉인진)
   if (hasKey) {
-    // 🌟 [열쇠 소지]: 끊임없이 회전하며 빨려 들어가는 고품질 회오리 볼텍스 (Continuous Cosmic Vortex)
+    // 🌟 [열쇠 소지]: 끊임없이 부드럽고 우아하게 회전하는 고품질 회오리 볼텍스 (Calm Hypnotic Cosmic Vortex)
 
     // (1) 포탈 심연 배경 방사형 그라데이션
     const portalGrad = ctx.createRadialGradient(targetCx, targetCy, 2, targetCx, targetCy, 40);
@@ -367,8 +367,8 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
     ctx.arc(targetCx, targetCy, 39, 0, Math.PI * 2);
     ctx.fill();
 
-    // (2) 6개의 고밀도 회오리 나선 팔 (Continuous Dense Spiral Arms)
-    const spinAngle = now * 0.0032;
+    // (2) 6개의 고밀도 회오리 나선 팔 (부드럽고 차분한 회전 속도로 조정)
+    const spinAngle = now * 0.0008;
     const numArms = 6;
     ctx.save();
     ctx.translate(targetCx, targetCy);
@@ -394,8 +394,8 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
       ctx.stroke();
     }
 
-    // Layer B: 차등 회전하는 앰버 보조 소용돌이 리본 (차등 유체 회전 효과)
-    const secondarySpin = -now * 0.0018;
+    // Layer B: 차등 회전하는 앰버 보조 소용돌이 리본 (차분한 역방향 회전)
+    const secondarySpin = -now * 0.00045;
     for (let i = 0; i < 4; i++) {
       const armAngle = secondarySpin + (i * Math.PI * 2 / 4);
       ctx.beginPath();
@@ -414,12 +414,12 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
       ctx.stroke();
     }
 
-    // (3) 중심으로 가속하며 빨려 들어가는 별빛 파티클 (Inward Keplerian Particles)
+    // (3) 중심으로 우아하게 흘러 들어가는 별빛 파티클 (Gentle Inward Drift)
     const particleCount = 14;
     for (let p = 0; p < particleCount; p++) {
-      const pPhase = (now * 0.0018 + p / particleCount) % 1; // 0 -> 1
+      const pPhase = (now * 0.00055 + p / particleCount) % 1; // 0 -> 1
       const pRadius = 37 * (1 - pPhase);
-      const pAngle = spinAngle * 1.5 + p * (Math.PI * 2 / particleCount) + Math.pow(pPhase, 1.3) * 5.2;
+      const pAngle = spinAngle * 1.1 + p * (Math.PI * 2 / particleCount) + Math.pow(pPhase, 1.25) * 3.6;
       const px = Math.cos(pAngle) * pRadius;
       const py = Math.sin(pAngle) * pRadius;
       const pSize = 1.2 + (1 - pPhase) * 1.6;
@@ -433,8 +433,8 @@ export function drawExitPortal(ctx, hasKey, cx, cy) {
       ctx.fill();
     }
 
-    // (4) 중앙 백열 싱귤래리티 코어
-    const corePulse = Math.sin(now / 130) * 1.5 + 7;
+    // (4) 중앙 백열 싱귤래리티 코어 (안정적인 호흡형 맥동)
+    const corePulse = Math.sin(now / 320) * 1.2 + 7;
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = '#fef08a';
     ctx.shadowBlur = 16;
