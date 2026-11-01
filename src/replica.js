@@ -148,10 +148,80 @@ channel.on(MSG.ASSIGN, (data) => {
   }
 });
 
+function executeDoorTransition(promptData) {
+  if (!promptData || promptData.clear) return false;
+
+  const isActive = navigator.userActivation ? navigator.userActivation.isActive : 'unknown';
+  console.log(`[AutoDoor] 문 통과 시도 (willOpenNew: ${promptData.willOpenNew}, userActivation.isActive: ${isActive})`);
+
+  let actualRect = null;
+  let openedWin = null;
+
+  if (promptData.willOpenNew) {
+    const { targetWinId, rect, dir } = promptData;
+    const w = Math.round((rect && rect.width) || dynamicW);
+    const h = Math.round((rect && rect.height) || dynamicH);
+
+    // 현재 방 창의 실제 화면 좌표 및 물리 크기 측정
+    const curX = (typeof window.screenX === 'number' && !isNaN(window.screenX)) ? window.screenX : (window.screenLeft || 0);
+    const curY = (typeof window.screenY === 'number' && !isNaN(window.screenY)) ? window.screenY : (window.screenTop || 0);
+    const curW = window.outerWidth || w;
+    const curH = window.outerHeight || h;
+
+    // Master가 화면 해상도에 맞춰 균등 분할 계산한 정규 N*M 그리드 좌표(rect)를 최우선 적용
+    let targetLeft = (rect && typeof rect.left === 'number') ? rect.left : curX;
+    let targetTop = (rect && typeof rect.top === 'number') ? rect.top : curY;
+
+    if (!rect) {
+      if (dir === 'right') targetLeft = curX + curW;
+      else if (dir === 'left') targetLeft = curX - curW;
+      else if (dir === 'down') targetTop = curY + curH;
+      else if (dir === 'up') targetTop = curY - curH;
+    }
+
+    targetLeft = Math.round(targetLeft);
+    targetTop = Math.round(targetTop);
+    actualRect = { left: targetLeft, top: targetTop, width: w, height: h };
+
+    const features = `popup=yes,resizable=no,width=${w},height=${h},left=${targetLeft},top=${targetTop}`;
+    openedWin = window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}&muted=${sound.isMuted ? 1 : 0}`, targetWinId, features);
+  } else {
+    openedWin = window.open('', promptData.targetWinId);
+    if (openedWin) openedWin.focus();
+  }
+
+  if (!openedWin) {
+    console.warn('[AutoDoor] 브라우저 팝업 차단으로 자동 창 열기가 거부되었습니다. [Space] 키를 눌러주세요.');
+    return false;
+  }
+
+  keys.clear();
+  channel.send(MSG.INPUT, { keys: [] });
+  sound.playDoorPass();
+
+  channel.send(MSG.DOOR_CONFIRM, { 
+    winId, 
+    dir: promptData.dir, 
+    targetWinId: promptData.targetWinId,
+    actualRect
+  });
+  currentPrompt = null;
+  return true;
+}
+
 channel.on(MSG.DOOR_PROMPT, (data) => {
   if (data.activeCellId === myCellId) {
-    currentPrompt = data.clear ? null : data;
-    scheduleRender();
+    if (data.clear) {
+      currentPrompt = null;
+      scheduleRender();
+    } else {
+      currentPrompt = data;
+      // 스페이스바 없이 문에 닿는 즉시 자동 방 이동 시도
+      const moved = executeDoorTransition(data);
+      if (!moved) {
+        scheduleRender();
+      }
+    }
   }
 });
 
@@ -253,54 +323,9 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  // 문 열기 인터랙션
+  // 문 열기 인터랙션 (자동 오픈이 팝업 차단되었을 때의 폴백)
   if (e.key === ' ' && currentPrompt) {
-    keys.clear();
-    channel.send(MSG.INPUT, { keys: [] });
-
-    sound.playDoorPass();
-
-    let actualRect = null;
-
-    if (currentPrompt.willOpenNew) {
-      const { targetWinId, rect, dir } = currentPrompt;
-      const w = Math.round((rect && rect.width) || dynamicW);
-      const h = Math.round((rect && rect.height) || dynamicH);
-
-      // 현재 방 창의 실제 화면 좌표 및 물리 크기 측정
-      const curX = (typeof window.screenX === 'number' && !isNaN(window.screenX)) ? window.screenX : (window.screenLeft || 0);
-      const curY = (typeof window.screenY === 'number' && !isNaN(window.screenY)) ? window.screenY : (window.screenTop || 0);
-      const curW = window.outerWidth || w;
-      const curH = window.outerHeight || h;
-
-      // Master가 화면 해상도에 맞춰 균등 분할 계산한 정규 N*M 그리드 좌표(rect)를 최우선 적용 (화면 여백 및 겹침 방지)
-      let targetLeft = (rect && typeof rect.left === 'number') ? rect.left : curX;
-      let targetTop = (rect && typeof rect.top === 'number') ? rect.top : curY;
-
-      if (!rect) {
-        if (dir === 'right') targetLeft = curX + curW;
-        else if (dir === 'left') targetLeft = curX - curW;
-        else if (dir === 'down') targetTop = curY + curH;
-        else if (dir === 'up') targetTop = curY - curH;
-      }
-
-      targetLeft = Math.round(targetLeft);
-      targetTop = Math.round(targetTop);
-      actualRect = { left: targetLeft, top: targetTop, width: w, height: h };
-
-      const features = `popup=yes,resizable=no,width=${w},height=${h},left=${targetLeft},top=${targetTop}`;
-      window.open(`./room.html#winId=${targetWinId}&w=${w}&h=${h}&muted=${sound.isMuted ? 1 : 0}`, targetWinId, features);
-    } else {
-      const win = window.open('', currentPrompt.targetWinId);
-      if (win) win.focus();
-    }
-    channel.send(MSG.DOOR_CONFIRM, { 
-      winId, 
-      dir: currentPrompt.dir, 
-      targetWinId: currentPrompt.targetWinId,
-      actualRect
-    });
-    currentPrompt = null;
+    executeDoorTransition(currentPrompt);
     return;
   }
 

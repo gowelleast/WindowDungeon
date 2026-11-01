@@ -347,6 +347,7 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   monster.wanderCooldown = Math.max(monster.wanderCooldown, 18);
 
   keys.clear();
+  lastPromptDir = null;
   player.vx = 0; player.vy = 0;
   player.kx = 0; player.ky = 0;
   const doorMargin = player.radius + 35;
