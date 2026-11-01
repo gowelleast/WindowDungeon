@@ -215,6 +215,16 @@ channel.on(MSG.TICK, (data) => {
 
 // 4. 키보드 입력 및 동기적 window.open 실행
 const keys = new Set();
+
+function normalizeInputKey(e) {
+  if (e.code === 'KeyW' || e.key === 'w' || e.key === 'W' || e.key === 'ㅈ' || e.key === 'ㅉ') return 'w';
+  if (e.code === 'KeyA' || e.key === 'a' || e.key === 'A' || e.key === 'ㅁ') return 'a';
+  if (e.code === 'KeyS' || e.key === 's' || e.key === 'S' || e.key === 'ㄴ') return 's';
+  if (e.code === 'KeyD' || e.key === 'd' || e.key === 'D' || e.key === 'ㅇ') return 'd';
+  if (e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ') return 'm';
+  return e.key;
+}
+
 window.addEventListener('keydown', (e) => {
   const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
   const isU = e.code === 'KeyU' || e.key === 'u' || e.key === 'U' || e.key === 'ㅕ';
@@ -294,7 +304,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  const keyName = isM ? 'm' : e.key;
+  const keyName = normalizeInputKey(e);
   if (!keys.has(keyName)) {
     keys.add(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });
@@ -302,8 +312,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keyup', (e) => {
-  const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
-  const keyName = isM ? 'm' : e.key;
+  const keyName = normalizeInputKey(e);
   if (keys.has(keyName)) {
     keys.delete(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });

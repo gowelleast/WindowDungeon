@@ -254,9 +254,24 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
         return;
       }
 
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
+      const codeToMoveKey = {
+        KeyW: 'w',
+        KeyA: 'a',
+        KeyS: 's',
+        KeyD: 'd'
+      };
+      const korToMoveKey = {
+        'ㅈ': 'w',
+        'ㅉ': 'w',
+        'ㅁ': 'a',
+        'ㄴ': 's',
+        'ㅇ': 'd'
+      };
+      const mappedMoveKey = codeToMoveKey[e.code] || korToMoveKey[e.key];
+
+      if (mappedMoveKey || ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
         e.preventDefault();
-        const keyName = (e.key.length === 1) ? e.key.toLowerCase() : e.key;
+        const keyName = mappedMoveKey || ((e.key.length === 1) ? e.key.toLowerCase() : e.key);
         if (isDown) {
           pipKeys.add(keyName);
         } else {
