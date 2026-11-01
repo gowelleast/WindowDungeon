@@ -11,7 +11,7 @@ import {
   drawDungeonLighting, 
   drawHUD 
 } from './render.js';
-import { CONFIG } from './config.js';
+import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
 import { sound } from './sound.js';
 import { initMinimap, togglePipMinimap } from './minimap.js';
@@ -24,11 +24,14 @@ if (!winId || winId === '') {
 }
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
 
-// 해상도에 맞춘 동적 방 크기(w, h) 및 사운드 음소거 상태 동기화 적용
-const dynamicW = parseInt(hashParams.get('w'), 10) || CONFIG.ROOM_OUTER_W;
-const dynamicH = parseInt(hashParams.get('h'), 10) || CONFIG.ROOM_OUTER_H;
+// 해상도에 맞춘 동적 방 크기(w, h) 및 슬롯 크기(slotW, slotH), 음소거 상태 동기화 적용
+const initSizing = computeDynamicRoomSize(window.screen.availWidth, window.screen.availHeight);
+const dynamicW = parseInt(hashParams.get('w'), 10) || initSizing.roomW;
+const dynamicH = parseInt(hashParams.get('h'), 10) || initSizing.roomH;
 CONFIG.ROOM_OUTER_W = dynamicW;
 CONFIG.ROOM_OUTER_H = dynamicH;
+CONFIG.ROOM_SLOT_W = initSizing.slotW;
+CONFIG.ROOM_SLOT_H = initSizing.slotH;
 
 const isMutedParam = hashParams.get('muted');
 if (isMutedParam !== null) {

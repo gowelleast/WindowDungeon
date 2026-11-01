@@ -1,4 +1,4 @@
-import { CONFIG } from './config.js';
+import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { MSG } from './protocol.js';
 import { cellToScreenRect, parseCellId } from './grid.js';
 
@@ -77,6 +77,10 @@ export function initMinimap(channel) {
   const unsubscribers = [
     channel.on(MSG.SCREENS_UPDATE, (data) => {
       screens = data.screens;
+      if (data.roomW) CONFIG.ROOM_OUTER_W = data.roomW;
+      if (data.roomH) CONFIG.ROOM_OUTER_H = data.roomH;
+      if (data.slotW) CONFIG.ROOM_SLOT_W = data.slotW;
+      if (data.slotH) CONFIG.ROOM_SLOT_H = data.slotH;
       scheduleMinimapRender();
     }),
 
@@ -409,14 +413,19 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   const totalW = maxX - minX;
   const totalH = maxY - minY;
   
-  const padding = 20;
+  const padX = 18;
+  const padTop = 12;
+  const padBottom = 26; // 하단 범례(Legend) 영역 확보
+  const availCanvasW = canvasW - padX * 2;
+  const availCanvasH = canvasH - padTop - padBottom;
+
   const scale = Math.min(
-    (canvasW - padding * 2) / totalW,
-    (canvasH - padding * 2) / totalH
+    availCanvasW / totalW,
+    availCanvasH / totalH
   );
 
   const offsetX = (canvasW - totalW * scale) / 2;
-  const offsetY = (canvasH - totalH * scale) / 2;
+  const offsetY = padTop + (availCanvasH - totalH * scale) / 2;
 
   // 화면 배경 (다크 네이비 레이더 맵)
   targetCtx.fillStyle = '#080a0f';
@@ -464,7 +473,15 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     const s = screens.find(sc => sc.label === cell.screenLabel);
     if (!s) continue;
     
-    const rect = cellToScreenRect(s, cell.gx, cell.gy, CONFIG);
+    const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+    const cellCfg = {
+      ...CONFIG,
+      ROOM_OUTER_W: screenSizing.roomW,
+      ROOM_OUTER_H: screenSizing.roomH,
+      ROOM_SLOT_W: screenSizing.slotW,
+      ROOM_SLOT_H: screenSizing.slotH
+    };
+    const rect = cellToScreenRect(s, cell.gx, cell.gy, cellCfg);
     const dx = offsetX + (rect.left - minX) * scale;
     const dy = offsetY + (rect.top - minY) * scale;
     const dw = (rect.slotWidth || rect.width) * scale;
@@ -516,9 +533,19 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
       const s = screens.find(sc => sc.label === parsedMonster.screenLabel);
 
       if (s) {
-        const rect = cellToScreenRect(s, parsedMonster.gx, parsedMonster.gy, CONFIG);
-        const mx = rect.left + m.lx;
-        const my = rect.top + m.ly;
+        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+        const cellCfg = {
+          ...CONFIG,
+          ROOM_OUTER_W: screenSizing.roomW,
+          ROOM_OUTER_H: screenSizing.roomH,
+          ROOM_SLOT_W: screenSizing.slotW,
+          ROOM_SLOT_H: screenSizing.slotH
+        };
+        const rect = cellToScreenRect(s, parsedMonster.gx, parsedMonster.gy, cellCfg);
+        const ratioX = (rect.slotWidth || rect.width) / (CONFIG.ROOM_OUTER_W || rect.width);
+        const ratioY = (rect.slotHeight || rect.height) / (CONFIG.ROOM_OUTER_H || rect.height);
+        const mx = rect.left + m.lx * ratioX;
+        const my = rect.top + m.ly * ratioY;
 
         const mdx = offsetX + (mx - minX) * scale;
         const mdy = offsetY + (my - minY) * scale;
@@ -553,9 +580,19 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     const cell = cellMap.get(player.activeCellId);
     const s = screens.find(sc => sc.label === cell.screenLabel);
     if (s) {
-      const rect = cellToScreenRect(s, cell.gx, cell.gy, CONFIG);
-      const px = rect.left + player.lx;
-      const py = rect.top + player.ly;
+      const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+      const cellCfg = {
+        ...CONFIG,
+        ROOM_OUTER_W: screenSizing.roomW,
+        ROOM_OUTER_H: screenSizing.roomH,
+        ROOM_SLOT_W: screenSizing.slotW,
+        ROOM_SLOT_H: screenSizing.slotH
+      };
+      const rect = cellToScreenRect(s, cell.gx, cell.gy, cellCfg);
+      const ratioX = (rect.slotWidth || rect.width) / (CONFIG.ROOM_OUTER_W || rect.width);
+      const ratioY = (rect.slotHeight || rect.height) / (CONFIG.ROOM_OUTER_H || rect.height);
+      const px = rect.left + player.lx * ratioX;
+      const py = rect.top + player.ly * ratioY;
 
       const pdx = offsetX + (px - minX) * scale;
       const pdy = offsetY + (py - minY) * scale;
