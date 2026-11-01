@@ -1,6 +1,8 @@
 # 🏰 Window Dungeon
 
 > **작은 브라우저 창 하나가 던전의 방(Room) 하나가 되는 멀티 윈도우 공간 크롤러**
+>
+> 🎮 **바로 플레이하기 (Desktop Chrome / Edge 권장)**: [https://gowelleast.github.io/WindowDungeon/](https://gowelleast.github.io/WindowDungeon/)
 
 ![Room Gameplay](assets/gameplay.png)
 
@@ -47,15 +49,15 @@
 * 열쇠를 얻기 전에 탈출문을 먼저 발견하더라도 미니맵에 탈출문(🚪) 위치가 기록되어, 열쇠 획득 후 위치를 확인할 수 있습니다.
 
 ### 5. 👾 백그라운드 몬스터 AI (Background Monster AI)
-* **Web Worker 기반 시뮬레이션**: 브라우저 창이 열려 있지 않은 방을 포함해, Worker 코어가 1~2초 간격으로 몬스터의 인접 방 순찰(Wandering)을 처리합니다.
+* **Web Worker 기반 시뮬레이션**: 브라우저 창이 열려 있지 않은 방을 포함해, Worker 코어가 실제 방 중앙과 출입구(문)를 거쳐 몬스터의 연속 순찰(Wandering)을 처리합니다.
 * 플레이어와 같은 방에 있거나 1칸 이내로 가까워지면 추적(Chasing) 모드로 전환되며, 충돌 시 넉백과 함께 2.5초간 무적 시간(점멸 효과)이 적용됩니다.
 
 ### 6. 📌 Document Picture-in-Picture 기반 미니맵
 * **Always-on-Top 플로팅 창**: Chrome의 **Document Picture-in-Picture API**를 사용해 다른 창 위에 유지되는 미니맵 창을 제공합니다.
 * `[M]` 키로 열고 닫을 수 있으며, 탐색한 던전 지형과 플레이어 위치, 탈출문(🚪), 열쇠(🔑), 몬스터(👾) 위치를 표시합니다.
 
-### 7. 🔊 Web Audio API 사운드 및 음소거 동기화
-* 외부 음원 파일 없이 Web Audio API 오실레이터로 효과음(열쇠 획득, 잠긴 문, 포탈 개방, 피격, 클리어)을 합성하여 재생합니다.
+### 7. 🔊 Web Audio API 사운드 및 다크 앰비언트 동기화
+* 외부 음원 파일 없이 Web Audio API 오실레이터로 다크 앰비언트 배경음(Drone BGM), 몬스터 접근 심장박동 텐션음, 효과음(열쇠 획득, 잠긴 문, 문 이동, 피격, 클리어)을 실시간 합성하여 재생합니다.
 * `[U]` 키로 음소거(Mute)를 전환할 수 있으며, 새 창이 열리거나 창 간 이동 시에도 음소거 상태가 동기화됩니다.
 
 ### 8. 🎉 다중 윈도우 꽃가루 연출 (Cross-Window Confetti)
@@ -68,7 +70,7 @@
 
 | 키 | 동작 |
 | :--- | :--- |
-| `↑` `↓` `←` `→` 또는 `W` `A` `S` `D` | 캐릭터 4방향 이동 및 문 통과 (새로운 방 생성 및 이동) |
+| `↑` `↓` `←` `→` 또는 `W` `A` `S` `D` (`ㅈ` `ㅁ` `ㄴ` `ㅇ`) | 캐릭터 4방향 이동 및 문 통과 (새로운 방 생성 및 이동) |
 | `M` (또는 `ㅡ`) | Always-on-Top **미니맵** 열기 / 닫기 토글 |
 | `U` (또는 `ㅕ`) | 사운드 음소거(Mute) 켜기 / 끄기 토글 |
 | `Space` | 클리어 후 모든 방 창 닫기 및 로비 복귀 |
@@ -127,6 +129,10 @@ window-dungeon/
 ---
 
 ## 🚀 시작하기
+
+### 웹에서 바로 플레이
+* 별도 설치 없이 데스크톱 Chrome / Edge 브라우저에서 바로 실행할 수 있습니다.
+* 👉 **[https://gowelleast.github.io/WindowDungeon/](https://gowelleast.github.io/WindowDungeon/)**
 
 ### 실행 환경 요구사항
 * **Chromium 기반 브라우저**: Chrome 또는 Edge 최신 버전 (Window Management API 지원 필요)
