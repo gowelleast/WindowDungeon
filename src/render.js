@@ -896,6 +896,176 @@ export function drawDungeonLighting(ctx, playerState = null) {
   ctx.restore();
 }
 
+// ----------------------------------------------------
+// ✨ 4. 크로스 윈도우 문 통과 전환 이펙트 (Cross-Window Portal Transition)
+// ----------------------------------------------------
+const OPPOSITE_DOOR = { up: 'down', down: 'up', left: 'right', right: 'left' };
+const activeDoorEffects = [];
+
+function getDirVector(dir) {
+  if (dir === 'up') return { dx: 0, dy: -1 };
+  if (dir === 'down') return { dx: 0, dy: 1 };
+  if (dir === 'left') return { dx: -1, dy: 0 };
+  return { dx: 1, dy: 0 };
+}
+
+/**
+ * 방 이동 시 출발 창('depart')과 도착 창('arrive') 양쪽 문에서
+ * 창 경계를 가로질러 이어지는 에너지 입자 스트림 및 잔상 파동을 생성합니다.
+ * @param {'depart' | 'arrive'} type 출발 방 또는 도착 방 여부
+ * @param {'up' | 'down' | 'left' | 'right'} moveDir 플레이어의 이동 방향
+ */
+export function triggerDoorTransitionEffect(type, moveDir) {
+  if (!moveDir) return;
+  const now = performance.now();
+  const duration = type === 'depart' ? 260 : 320;
+  const count = type === 'depart' ? 8 : 10;
+  const palette = ['#38bdf8', '#34d399', '#7dd3fc'];
+
+  const particles = [];
+  for (let i = 0; i < count; i++) {
+    const spread = (Math.random() - 0.5) * (DOOR_W - 22);
+    const depthOffset = type === 'depart'
+      ? 10 + Math.random() * 28
+      : Math.random() * 8;
+    const speed = type === 'depart'
+      ? 70 + Math.random() * 65
+      : 80 + Math.random() * 75;
+    const lateralDrift = (Math.random() - 0.5) * (type === 'depart' ? 12 : 24);
+    const size = 1.4 + Math.random() * 1.2;
+    const streakLen = 7 + Math.random() * 10;
+    const color = palette[i % palette.length];
+
+    particles.push({
+      spread,
+      depthOffset,
+      speed,
+      lateralDrift,
+      size,
+      streakLen,
+      color
+    });
+  }
+
+  // 연속 이동 시 이펙트가 중첩되지 않도록 최신 1개만 유지
+  activeDoorEffects.length = 0;
+  activeDoorEffects.push({
+    type,
+    moveDir,
+    doorSide: type === 'depart' ? moveDir : OPPOSITE_DOOR[moveDir],
+    startTime: now,
+    duration,
+    particles
+  });
+}
+
+export function hasActiveDoorTransition() {
+  const now = performance.now();
+  for (let i = activeDoorEffects.length - 1; i >= 0; i--) {
+    if (now - activeDoorEffects[i].startTime > activeDoorEffects[i].duration) {
+      activeDoorEffects.splice(i, 1);
+    }
+  }
+  return activeDoorEffects.length > 0;
+}
+
+export function drawDoorTransitionEffects(ctx) {
+  if (!hasActiveDoorTransition()) return;
+
+  const { W, H, CX, CY } = getDim(ctx);
+  const now = performance.now();
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+
+  for (const fx of activeDoorEffects) {
+    const elapsed = now - fx.startTime;
+    const t = Math.max(0, Math.min(1, elapsed / fx.duration));
+    const fade = 1 - t;
+
+    const { dx, dy } = getDirVector(fx.moveDir);
+    const side = fx.doorSide;
+
+    // 문 중심의 창 경계 좌표 (x0, y0)
+    let edgeX = CX, edgeY = CY;
+    if (side === 'up') { edgeX = CX; edgeY = 0; }
+    else if (side === 'down') { edgeX = CX; edgeY = H; }
+    else if (side === 'left') { edgeX = 0; edgeY = CY; }
+    else if (side === 'right') { edgeX = W; edgeY = CY; }
+
+    // 1. 문턱의 은은한 방향성 빛 번짐 (shadowBlur 없이 가벼운 그라데이션 1회)
+    const beamDepth = fx.type === 'depart' ? 36 * fade : 46 * Math.sin(t * Math.PI);
+    const inwardX = fx.type === 'depart' ? -dx : dx;
+    const inwardY = fx.type === 'depart' ? -dy : dy;
+
+    if (beamDepth > 1) {
+      const beamGrad = ctx.createLinearGradient(
+        edgeX,
+        edgeY,
+        edgeX + inwardX * beamDepth,
+        edgeY + inwardY * beamDepth
+      );
+      beamGrad.addColorStop(0, `rgba(56, 189, 248, ${0.28 * fade})`);
+      beamGrad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+
+      ctx.fillStyle = beamGrad;
+      if (side === 'up' || side === 'down') {
+        const topY = side === 'up' ? 0 : H - beamDepth;
+        ctx.fillRect(CX - DOOR_W / 2, topY, DOOR_W, beamDepth);
+      } else {
+        const leftX = side === 'left' ? 0 : W - beamDepth;
+        ctx.fillRect(leftX, CY - DOOR_W / 2, beamDepth, DOOR_W);
+      }
+    }
+
+    // 2. 가볍고 깔끔한 빛 입자 궤적 (shadowBlur 제거로 프레임 드랍 방지)
+    const pAlpha = fade * 0.7;
+    if (pAlpha <= 0.03) continue;
+    ctx.globalAlpha = pAlpha;
+
+    for (const p of fx.particles) {
+      const travel = fx.type === 'depart'
+        ? t * (p.speed * 0.36)
+        : easeOutCubic(t) * (p.speed * 0.42);
+
+      const distFromEdge = fx.type === 'depart'
+        ? p.depthOffset - travel
+        : p.depthOffset + travel;
+
+      if (fx.type === 'depart' && distFromEdge < -4) continue;
+
+      const lateral = p.spread + p.lateralDrift * t;
+
+      let px, py;
+      if (side === 'up' || side === 'down') {
+        px = edgeX + lateral;
+        py = edgeY + inwardY * distFromEdge;
+      } else {
+        px = edgeX + inwardX * distFromEdge;
+        py = edgeY + lateral;
+      }
+
+      const tailScale = fx.type === 'depart' ? (0.6 + t * 0.5) : (1.0 - t * 0.6);
+      const tailX = px - dx * p.streakLen * tailScale;
+      const tailY = py - dy * p.streakLen * tailScale;
+
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = p.size;
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(px, py);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+}
+
+function easeOutCubic(x) {
+  return 1 - Math.pow(1 - x, 3);
+}
+
 /**
  * 상단 HUD 오버레이 (열쇠 소지 현황, 단축키 안내 및 잠김 경고 피드백)
  */

@@ -143,6 +143,9 @@ function calculateDoors(screen, gx, gy) {
 let isVictory = false;
 let isClosing = false;
 let lastLockedDoorNotify = 0;
+let doorTransitionSeq = 0;
+let lastDoorTransition = null;
+let doorTransferCooldown = 0;
 
 /**
  * 게임 시작 시 BFS로 던전 전체 가상 그리드를 파악하고
@@ -288,13 +291,17 @@ channel.on(MSG.HELLO, (data) => {
       }
 
       // 전체 개척된 방 동기화 브로드캐스트
+      const recentTransition = (lastDoorTransition && (Date.now() - lastDoorTransition.timestamp < 800))
+        ? lastDoorTransition
+        : null;
       for (const c of cellMap.values()) {
         channel.send(MSG.ASSIGN, {
           ...c,
           isExitRoom: (c.id === exitCellId),
           isKeyRoom: (c.id === keyCellId),
           hasKey,
-          isMuted
+          isMuted,
+          doorTransition: recentTransition
         });
       }
     } else {
@@ -316,6 +323,7 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   const adj = getAdjacentCell(currentCell.screenLabel, currentCell.gx, currentCell.gy, data.dir);
   if (!adj) return;
 
+  const fromCellId = currentCell.id;
   const nextId = getCellId(adj.screen.label, adj.gx, adj.gy);
   
   if (!cellMap.has(nextId)) {
@@ -332,6 +340,16 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   if (player.cellId === exitCellId) exitDiscovered = true;
   if (player.cellId === keyCellId) keyDiscovered = true;
 
+  // 방 이동 크로스 윈도우 전이 이벤트 기록
+  lastDoorTransition = {
+    id: ++doorTransitionSeq,
+    fromCellId,
+    toCellId: nextId,
+    dir: data.dir,
+    timestamp: Date.now()
+  };
+  doorTransferCooldown = 5; // 이동 직후 약 0.16초간 중복 문 트리거 방지
+
   const nextCell = cellMap.get(nextId);
   if (nextCell) {
     channel.send(MSG.ASSIGN, {
@@ -339,7 +357,8 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
       isExitRoom: (nextCell.id === exitCellId),
       isKeyRoom: (nextCell.id === keyCellId),
       hasKey,
-      isMuted
+      isMuted,
+      doorTransition: lastDoorTransition
     });
   }
 
@@ -350,11 +369,28 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   lastPromptDir = null;
   player.vx = 0; player.vy = 0;
   player.kx = 0; player.ky = 0;
-  const doorMargin = player.radius + 35;
-  if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; player.facing = 'up'; }
-  else if (data.dir === 'down') { player.ly = doorMargin; player.facing = 'down'; }
-  else if (data.dir === 'left') { player.lx = CONFIG.ROOM_OUTER_W - doorMargin; player.facing = 'left'; }
-  else if (data.dir === 'right') { player.lx = doorMargin; player.facing = 'right'; }
+
+  // 다음 방에 도착했을 때 어색하게 멀리 떨어지지 않고 방금 통과한 문틀 바로 앞(24px) 중앙에 자연스럽게 위치
+  const cx = CONFIG.ROOM_OUTER_W / 2;
+  const cy = CONFIG.ROOM_OUTER_H / 2;
+  const doorSpawnMargin = 24;
+  if (data.dir === 'up') {
+    player.lx = cx;
+    player.ly = CONFIG.ROOM_OUTER_H - doorSpawnMargin;
+    player.facing = 'up';
+  } else if (data.dir === 'down') {
+    player.lx = cx;
+    player.ly = doorSpawnMargin;
+    player.facing = 'down';
+  } else if (data.dir === 'left') {
+    player.lx = CONFIG.ROOM_OUTER_W - doorSpawnMargin;
+    player.ly = cy;
+    player.facing = 'left';
+  } else if (data.dir === 'right') {
+    player.lx = doorSpawnMargin;
+    player.ly = cy;
+    player.facing = 'right';
+  }
 });
 
 channel.on(MSG.INPUT, (data) => {
@@ -591,6 +627,9 @@ setInterval(() => {
   if (player.invulnerableTimer > 0) {
     player.invulnerableTimer--;
   }
+  if (doorTransferCooldown > 0) {
+    doorTransferCooldown--;
+  }
 
   let dx = 0; let dy = 0;
   if (player.stunTimer <= 0) {
@@ -634,13 +673,15 @@ setInterval(() => {
 
   const currentCell = cellMap.get(player.cellId);
   const doorWidth = 80;
+  const doorHalfSpan = doorWidth / 2 - player.radius + 3; // 28px (문틀 기둥 안쪽 여유 폭)
+  const doorRecessMargin = 16; // 문 안쪽 턱까지 자연스럽게 걸어 들어갈 수 있는 한계치
   const cx = CONFIG.ROOM_OUTER_W / 2;
   const cy = CONFIG.ROOM_OUTER_H / 2;
 
   const isAtDoorOpening = (dir) => {
     if (!currentCell || !currentCell.doors.includes(dir)) return false;
-    if (dir === 'up' || dir === 'down') return Math.abs(player.lx - cx) < doorWidth / 2;
-    return Math.abs(player.ly - cy) < doorWidth / 2;
+    if (dir === 'up' || dir === 'down') return Math.abs(player.lx - cx) <= doorHalfSpan;
+    return Math.abs(player.ly - cy) <= doorHalfSpan;
   };
 
   const bounceStrength = CONFIG.WALL_BOUNCE_STRENGTH ?? 2;
@@ -653,22 +694,39 @@ setInterval(() => {
     }
   };
 
-  // 벽 충돌 검사
-  if (player.ly < minY) {
-    player.ly = minY;
-    bounce('y', prevLy <= minY, 'up', player.vy, +1);
+  // 벽 충돌 검사 (문이 있는 구간에서는 문턱 안쪽 16px까지 진입 허용, 문틀 옆으로 빠져나갈 때는 부드럽게 가이드)
+  const minAllowedY = isAtDoorOpening('up') ? doorRecessMargin : minY;
+  const maxAllowedY = isAtDoorOpening('down') ? (CONFIG.ROOM_OUTER_H - doorRecessMargin) : maxY;
+  const minAllowedX = isAtDoorOpening('left') ? doorRecessMargin : minX;
+  const maxAllowedX = isAtDoorOpening('right') ? (CONFIG.ROOM_OUTER_W - doorRecessMargin) : maxX;
+
+  if (player.ly < minAllowedY) {
+    player.ly = minAllowedY;
+    bounce('y', prevLy <= minAllowedY, 'up', player.vy, +1);
+  } else if (player.ly < minY && dx !== 0 && dy >= 0) {
+    // 상단 문턱 안에서 좌우로 이동할 때 문기둥에 걸리지 않도록 방 안쪽으로 부드럽게 미끄러짐
+    player.ly = Math.min(minY, player.ly + 4);
   }
-  if (player.ly > maxY) {
-    player.ly = maxY;
-    bounce('y', prevLy >= maxY, 'down', player.vy, -1);
+
+  if (player.ly > maxAllowedY) {
+    player.ly = maxAllowedY;
+    bounce('y', prevLy >= maxAllowedY, 'down', player.vy, -1);
+  } else if (player.ly > maxY && dx !== 0 && dy <= 0) {
+    player.ly = Math.max(maxY, player.ly - 4);
   }
-  if (player.lx < minX) {
-    player.lx = minX;
-    bounce('x', prevLx <= minX, 'left', player.vx, +1);
+
+  if (player.lx < minAllowedX) {
+    player.lx = minAllowedX;
+    bounce('x', prevLx <= minAllowedX, 'left', player.vx, +1);
+  } else if (player.lx < minX && dy !== 0 && dx >= 0) {
+    player.lx = Math.min(minX, player.lx + 4);
   }
-  if (player.lx > maxX) {
-    player.lx = maxX;
-    bounce('x', prevLx >= maxX, 'right', player.vx, -1);
+
+  if (player.lx > maxAllowedX) {
+    player.lx = maxAllowedX;
+    bounce('x', prevLx >= maxAllowedX, 'right', player.vx, -1);
+  } else if (player.lx > maxX && dy !== 0 && dx <= 0) {
+    player.lx = Math.max(maxX, player.lx - 4);
   }
 
   // 1. 황금 열쇠 획득 판정
@@ -726,21 +784,40 @@ setInterval(() => {
   // 3. 백그라운드 몬스터 AI 갱신
   updateMonsterAI();
 
-  // 4. 문 프롬프트 감지
+  // 4. 문 통과 감지 (플레이어가 문턱 20px 라인까지 실제로 닿고, 해당 문 방향으로 진입할 때 트리거)
   let hitDoor = null;
-  const triggerMargin = 10;
+  const doorTriggerThreshold = 20;
 
-  if (player.ly <= minY + triggerMargin) {
-    if (currentCell.doors.includes('up') && Math.abs(player.lx - cx) < doorWidth/2) hitDoor = 'up';
-  }
-  if (player.ly >= maxY - triggerMargin) {
-    if (currentCell.doors.includes('down') && Math.abs(player.lx - cx) < doorWidth/2) hitDoor = 'down';
-  }
-  if (player.lx <= minX + triggerMargin) {
-    if (currentCell.doors.includes('left') && Math.abs(player.ly - cy) < doorWidth/2) hitDoor = 'left';
-  }
-  if (player.lx >= maxX - triggerMargin) {
-    if (currentCell.doors.includes('right') && Math.abs(player.ly - cy) < doorWidth/2) hitDoor = 'right';
+  if (doorTransferCooldown <= 0 && currentCell) {
+    if (
+      currentCell.doors.includes('up') &&
+      Math.abs(player.lx - cx) <= doorHalfSpan &&
+      player.ly <= doorTriggerThreshold &&
+      (dy < 0 || lastPromptDir === 'up')
+    ) {
+      hitDoor = 'up';
+    } else if (
+      currentCell.doors.includes('down') &&
+      Math.abs(player.lx - cx) <= doorHalfSpan &&
+      player.ly >= CONFIG.ROOM_OUTER_H - doorTriggerThreshold &&
+      (dy > 0 || lastPromptDir === 'down')
+    ) {
+      hitDoor = 'down';
+    } else if (
+      currentCell.doors.includes('left') &&
+      Math.abs(player.ly - cy) <= doorHalfSpan &&
+      player.lx <= doorTriggerThreshold &&
+      (dx < 0 || lastPromptDir === 'left')
+    ) {
+      hitDoor = 'left';
+    } else if (
+      currentCell.doors.includes('right') &&
+      Math.abs(player.ly - cy) <= doorHalfSpan &&
+      player.lx >= CONFIG.ROOM_OUTER_W - doorTriggerThreshold &&
+      (dx > 0 || lastPromptDir === 'right')
+    ) {
+      hitDoor = 'right';
+    }
   }
 
   if (hitDoor && hitDoor !== lastPromptDir) {
@@ -776,6 +853,22 @@ setInterval(() => {
     channel.send(MSG.DOOR_PROMPT, { activeCellId: player.cellId, clear: true });
   }
 
+  // 몬스터 접근 텐션 계산 (0: 2칸 이상 멀리 있음, 0.55: 바로 옆방, 0.78~1.0: 같은 방)
+  let monsterTension = 0;
+  if (monster.cellId && monster.state === 'chasing') {
+    if (monster.cellId === player.cellId) {
+      const dist = Math.hypot(player.lx - monster.lx, player.ly - monster.ly);
+      const maxRoomDist = Math.hypot(CONFIG.ROOM_OUTER_W, CONFIG.ROOM_OUTER_H);
+      monsterTension = Math.min(1, 0.78 + (1 - Math.min(1, dist / maxRoomDist)) * 0.22);
+    } else {
+      monsterTension = 0.55;
+    }
+  }
+
+  const activeDoorTransition = (lastDoorTransition && (Date.now() - lastDoorTransition.timestamp < 750))
+    ? lastDoorTransition
+    : null;
+
   // 30Hz 브로드캐스트 패킷 전송
   channel.send(MSG.TICK, {
     activeCellId: player.cellId,
@@ -791,6 +884,8 @@ setInterval(() => {
     keyCellId,
     exitDiscovered,
     keyDiscovered,
+    monsterTension,
+    doorTransition: activeDoorTransition,
     monster: {
       cellId: monster.cellId,
       lx: monster.lx,

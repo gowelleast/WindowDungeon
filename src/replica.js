@@ -9,6 +9,9 @@ import {
   drawExitPortal, 
   drawMonster, 
   drawDungeonLighting, 
+  drawDoorTransitionEffects,
+  triggerDoorTransitionEffect,
+  hasActiveDoorTransition,
   drawHUD 
 } from './render.js';
 import { CONFIG, computeDynamicRoomSize } from './config.js';
@@ -64,6 +67,26 @@ let wasPlayerHere = false;
 let wasMonsterHere = false;
 let lockedAlertTimer = 0;
 let pendingRafId = null;
+let lastHandledTransitionId = 0;
+let lastLocalDepartTime = 0;
+
+function checkDoorTransitionEvent(transition) {
+  if (!transition || !myCellId) return;
+  if (transition.id <= lastHandledTransitionId) return;
+  if (Date.now() - transition.timestamp > 800) return;
+
+  if (myCellId === transition.toCellId) {
+    lastHandledTransitionId = transition.id;
+    triggerDoorTransitionEffect('arrive', transition.dir);
+    scheduleRender();
+  } else if (myCellId === transition.fromCellId) {
+    lastHandledTransitionId = transition.id;
+    if (performance.now() - lastLocalDepartTime > 300) {
+      triggerDoorTransitionEffect('depart', transition.dir);
+      scheduleRender();
+    }
+  }
+}
 
 function renderFrame() {
   pendingRafId = null;
@@ -98,7 +121,10 @@ function renderFrame() {
     drawDungeonLighting(ctx, null);
   }
 
-  // 6. 상단 HUD (열쇠 상태, 단축키 및 잠김 알림)
+  // 6. 크로스 윈도우 문 통과 전환 파티클 이펙트 (출발 창 & 도착 창 동시 연출)
+  drawDoorTransitionEffects(ctx);
+
+  // 7. 상단 HUD (열쇠 상태, 단축키 및 잠김 알림)
   drawHUD(ctx, hasKey, sound.isMuted, isPlayerHere ? lockedAlertTimer : 0);
 }
 
@@ -142,6 +168,9 @@ channel.on(MSG.ASSIGN, (data) => {
     hasKey = !!data.hasKey;
     if (data.isMuted !== undefined) {
       sound.setMute(data.isMuted);
+    }
+    if (data.doorTransition) {
+      checkDoorTransitionEvent(data.doorTransition);
     }
 
     scheduleRender();
@@ -198,6 +227,11 @@ function executeDoorTransition(promptData) {
   keys.clear();
   channel.send(MSG.INPUT, { keys: [] });
   sound.playDoorPass();
+
+  // 출발 창 문에서 즉시 다음 창 방향으로 빨려 들어가는 공간 전이 이펙트 실행
+  lastLocalDepartTime = performance.now();
+  triggerDoorTransitionEffect('depart', promptData.dir);
+  scheduleRender();
 
   channel.send(MSG.DOOR_CONFIRM, { 
     winId, 
@@ -272,12 +306,16 @@ channel.on(MSG.TICK, (data) => {
   if (data.exitCellId === myCellId) isExitRoom = true;
   if (data.keyCellId === myCellId) isKeyRoom = true;
 
+  if (data.doorTransition) {
+    checkDoorTransitionEvent(data.doorTransition);
+  }
+
   const presenceChanged = (isPlayerHere !== wasPlayerHere) || (isMonsterHere !== wasMonsterHere);
   wasPlayerHere = isPlayerHere;
   wasMonsterHere = isMonsterHere;
 
   // 다중 창(15개 이상) 최적화: 비활성 빈 방은 3틱(10Hz)마다 렌더링하고, 활성/중요 방은 30Hz 즉시 렌더링
-  const isImportantRoom = isPlayerHere || isMonsterHere || presenceChanged || isExitRoom || (isKeyRoom && !hasKey);
+  const isImportantRoom = isPlayerHere || isMonsterHere || presenceChanged || isExitRoom || (isKeyRoom && !hasKey) || hasActiveDoorTransition();
   if (isImportantRoom || (data.tickCount % 3 === 0)) {
     scheduleRender();
   }

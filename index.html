@@ -30,6 +30,19 @@
       </div>
     </div>
 
+    <!-- 1.5 데스크톱 비호환 브라우저(Safari / Firefox) 감지 배너 -->
+    <div id="browser-warning-banner" class="browser-warning-banner" style="display: none;">
+      <div class="browser-warning-content">
+        <span class="browser-warning-badge" id="browser-warning-badge">⚠️ 비호환 브라우저 감지</span>
+        <span class="browser-warning-text">
+          현재 브라우저에서는 <strong>Window Management API</strong> 및 <strong>Document PiP 미니맵</strong>이 지원되지 않습니다. 완벽한 다중 창 스냅과 플로팅 레이더를 위해 <strong>데스크톱 Chrome(또는 Edge)</strong> 접속을 권장합니다.
+        </span>
+      </div>
+      <button id="btn-copy-banner-url" class="btn-pip browser-warning-copy-btn">
+        📋 링크 복사
+      </button>
+    </div>
+
     <!-- 2. 데스크톱 게임 시작 화면 -->
     <div id="start-screen">
       <div class="start-card">

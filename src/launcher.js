@@ -34,6 +34,37 @@ if (isMobileDevice) {
       }
     });
   }
+} else {
+  // 데스크톱 비호환 브라우저(Safari, Firefox 등 Window Management / Document PiP 미지원 환경) 감지
+  const ua = navigator.userAgent || '';
+  const isFirefox = /Firefox|FxiOS/i.test(ua);
+  const isSafari = /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|Brave|Whale/i.test(ua);
+  const lacksWindowAPIs = !('getScreenDetails' in window) || !('documentPictureInPicture' in window);
+
+  if (isFirefox || isSafari || lacksWindowAPIs) {
+    const banner = document.getElementById('browser-warning-banner');
+    const badge = document.getElementById('browser-warning-badge');
+    const btnCopyBanner = document.getElementById('btn-copy-banner-url');
+
+    if (badge) {
+      const browserLabel = isSafari ? 'Safari' : isFirefox ? 'Firefox' : '비호환 브라우저';
+      badge.textContent = `⚠️ ${browserLabel} 감지됨 — Chrome 권장`;
+    }
+    if (banner) {
+      banner.style.display = 'flex';
+    }
+    if (btnCopyBanner) {
+      btnCopyBanner.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          btnCopyBanner.textContent = '✅ 복사됨!';
+          setTimeout(() => { btnCopyBanner.textContent = '📋 링크 복사'; }, 2000);
+        } catch (e) {
+          prompt('아래 주소를 복사해 데스크톱 Chrome에서 열어주세요:', window.location.href);
+        }
+      });
+    }
+  }
 }
 
 // 시작 카드 인터랙티브 스포트라이트 이벤트 바인딩
@@ -72,6 +103,7 @@ channel.on(MSG.SOUND_MUTE_SYNC, (data) => {
 let sessionDisposers = [];
 
 function disposeSession() {
+  sound.stopAmbient();
   sessionDisposers.forEach((dispose) => dispose());
   sessionDisposers = [];
   if (worker) {
@@ -186,6 +218,14 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   sessionDisposers.push(initMinimap(channel));
   sessionDisposers.push(initInspector(channel));
 
+  // 다크 앰비언트 배경음(Drone BGM) 시작 및 몬스터 인접 텐션(심장박동) 실시간 연동
+  sound.startAmbient();
+  sessionDisposers.push(channel.on(MSG.TICK, (tickData) => {
+    sound.updateTension(tickData.monsterTension || 0);
+  }));
+  sessionDisposers.push(channel.on(MSG.VICTORY, () => {
+    sound.stopAmbient();
+  }));
 
   worker = new Worker('./src/master-worker.js', { type: 'module' });
   
