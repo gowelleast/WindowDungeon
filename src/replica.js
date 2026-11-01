@@ -406,7 +406,9 @@ window.addEventListener('beforeunload', () => {
 channel.on(MSG.VICTORY, (data) => {
   isVictory = true;
   document.body.classList.add('victory-flash');
-  sound.playVictory();
+  if (!data || !data.winnerWinId || data.winnerWinId === winId) {
+    sound.playVictory();
+  }
   
   if (!document.querySelector('.victory-modal')) {
     const modal = document.createElement('div');

@@ -65,28 +65,29 @@ class SoundSystem {
 
     const ambientGain = this.ctx.createGain();
     ambientGain.gain.setValueAtTime(0.001, now);
-    ambientGain.gain.linearRampToValueAtTime(0.18, now + 1.5);
+    // 기존(0.18) 대비 약 60% 수준으로 은은하게 낮춤
+    ambientGain.gain.linearRampToValueAtTime(0.11, now + 1.5);
 
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(135, now);
-    filter.Q.setValueAtTime(2.2, now);
+    filter.frequency.setValueAtTime(125, now);
+    filter.Q.setValueAtTime(1.2, now);
 
     // 은은하게 숨 쉬는 LFO (약 7초 주기로 필터 컷오프 변조)
     const lfo = this.ctx.createOscillator();
     const lfoGain = this.ctx.createGain();
     lfo.type = 'sine';
     lfo.frequency.setValueAtTime(0.14, now);
-    lfoGain.gain.setValueAtTime(38, now);
+    lfoGain.gain.setValueAtTime(28, now);
     lfo.connect(lfoGain);
     lfoGain.connect(filter.frequency);
 
-    // 드론 오실레이터 1: 깊은 베이스 (A1 = 55Hz)
+    // 드론 오실레이터 1: 깊은 베이스 (A1 = 55Hz, 저주파 부밍 완화를 위해 게인 축소)
     const osc1 = this.ctx.createOscillator();
     const osc1Gain = this.ctx.createGain();
     osc1.type = 'sawtooth';
     osc1.frequency.setValueAtTime(55.0, now);
-    osc1Gain.gain.setValueAtTime(0.45, now);
+    osc1Gain.gain.setValueAtTime(0.28, now);
 
     // 드론 오실레이터 2: 어두운 5도 화음 패드 (E2 = 82.41Hz, 살짝 디튠)
     const osc2 = this.ctx.createOscillator();
@@ -94,7 +95,7 @@ class SoundSystem {
     osc2.type = 'triangle';
     osc2.frequency.setValueAtTime(82.41, now);
     osc2.detune.setValueAtTime(4, now);
-    osc2Gain.gain.setValueAtTime(0.35, now);
+    osc2Gain.gain.setValueAtTime(0.22, now);
 
     // 드론 오실레이터 3: 불길한 텐션 서브옥타브/단2도 배음 (몬스터 접근 시 볼륨 증가)
     const tensionOsc = this.ctx.createOscillator();
@@ -158,8 +159,8 @@ class SoundSystem {
 
     const now = this.ctx.currentTime;
     // 몬스터가 가까워질수록 불협 배음(Bb2)과 로우패스 필터 컷오프를 높여 긴장감 고조
-    const targetTensionGain = clamped > 0 ? 0.04 + clamped * 0.22 : 0.0001;
-    const targetCutoff = 135 + clamped * 115;
+    const targetTensionGain = clamped > 0 ? 0.025 + clamped * 0.14 : 0.0001;
+    const targetCutoff = 125 + clamped * 95;
 
     this.ambientNodes.tensionGain.gain.setTargetAtTime(targetTensionGain, now, 0.25);
     this.ambientNodes.filter.frequency.setTargetAtTime(targetCutoff, now, 0.25);
@@ -374,37 +375,66 @@ class SoundSystem {
   }
 
   /**
-   * 6. 승리 팡파레 (화려한 8-bit 아르페지오)
+   * 6. 승리 사운드 (던전 분위기에 어울리는 신비로운 고대 포탈 개방 공명 + 크리스탈 차임 화음)
    */
   playVictory() {
     this.init();
     if (!this.ctx || this.isMuted) return;
 
-    const chords = [
-      { f: 523.25, d: 0.12 }, // C5
-      { f: 659.25, d: 0.12 }, // E5
-      { f: 783.99, d: 0.12 }, // G5
-      { f: 1046.50, d: 0.35 }, // C6
-      { f: 880.00, d: 0.15 }, // A5
-      { f: 1046.50, d: 0.55 }, // C6 (지속)
-    ];
+    const now = this.ctx.currentTime;
 
-    let t = this.ctx.currentTime + 0.05;
-    chords.forEach((note) => {
+    // Layer 1: 따뜻하고 몽환적인 포탈 해방 화음 패드 (Cmaj9 공명: C4, G4, B4, D5)
+    const padFilter = this.ctx.createBiquadFilter();
+    padFilter.type = 'lowpass';
+    padFilter.frequency.setValueAtTime(320, now);
+    padFilter.frequency.exponentialRampToValueAtTime(1200, now + 0.55);
+    padFilter.frequency.exponentialRampToValueAtTime(480, now + 2.0);
+    padFilter.connect(this.masterGain);
+
+    const padFreqs = [261.63, 392.00, 493.88, 587.33];
+    padFreqs.forEach((freq, i) => {
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(note.f, t);
+      osc.type = i === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.detune.setValueAtTime((i - 1.5) * 4, now);
 
-      gain.gain.setValueAtTime(0.3, t);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + note.d);
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.linearRampToValueAtTime(0.06, now + 0.25);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+
+      osc.connect(gain);
+      gain.connect(padFilter);
+      osc.start(now);
+      osc.stop(now + 2.05);
+    });
+
+    // Layer 2: 봉인이 풀리며 피어오르는 영롱한 크리스탈 차임 아르페지오 (Sine Bell)
+    const chimes = [
+      { f: 523.25, t: 0.04, d: 0.9, g: 0.10 },  // C5
+      { f: 659.25, t: 0.14, d: 0.95, g: 0.10 }, // E5
+      { f: 783.99, t: 0.24, d: 1.0, g: 0.11 },  // G5
+      { f: 987.77, t: 0.35, d: 1.15, g: 0.11 }, // B5 (신비로운 Maj7 컬러)
+      { f: 1174.66, t: 0.47, d: 1.35, g: 0.12 }, // D6
+      { f: 1567.98, t: 0.60, d: 1.65, g: 0.13 }  // G6 (여운)
+    ];
+
+    chimes.forEach((note) => {
+      const start = now + note.t;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(note.f, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(note.g, start + 0.025);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + note.d);
 
       osc.connect(gain);
       gain.connect(this.masterGain);
-      osc.start(t);
-      osc.stop(t + note.d + 0.02);
-
-      t += note.d * 0.85;
+      osc.start(start);
+      osc.stop(start + note.d + 0.03);
     });
   }
 }
