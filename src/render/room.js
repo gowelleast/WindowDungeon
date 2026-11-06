@@ -303,10 +303,12 @@ export function drawRoom(ctx, roomData, activePrompt = null, options = {}) {
   }
 
   // 4. 문(Doors) 렌더링
+  const doorOmens = options.doorOmens || null;
   if (roomData && roomData.doors) {
     roomData.doors.forEach(dir => {
       const isTarget = activePrompt && activePrompt.dir === dir && !activePrompt.clear;
-      drawDoor(ctx, dir, isTarget, now);
+      const omen = doorOmens ? doorOmens[dir] : null;
+      drawDoor(ctx, dir, isTarget, now, omen);
     });
   }
 
@@ -364,7 +366,7 @@ function drawWalls(ctx, theme = 'default') {
   }
 }
 
-function drawDoor(ctx, dir, isTarget, now) {
+function drawDoor(ctx, dir, isTarget, now, omen = null) {
   const { W, H, CX, CY } = getDim(ctx);
   ctx.save();
 
@@ -382,14 +384,27 @@ function drawDoor(ctx, dir, isTarget, now) {
   ctx.fillStyle = '#05070c';
   ctx.fillRect(x, y, w, h);
 
-  const pulse = Math.sin(now / 180) * 0.3 + 0.7;
-  const colorRune = isTarget ? `rgba(56, 189, 248, ${pulse})` : 'rgba(56, 189, 248, 0.4)';
-  const glowBlur = isTarget ? 15 : 6;
+  const pulse = Math.sin(now / (omen ? 120 : 180)) * 0.3 + 0.7;
+  let colorRune = isTarget ? `rgba(56, 189, 248, ${pulse})` : 'rgba(56, 189, 248, 0.4)';
+  let shadowCol = '#38bdf8';
+  let glowBlur = isTarget ? 15 : 6;
+  let lineW = isTarget ? 3.5 : 2;
 
-  ctx.shadowColor = '#38bdf8';
+  if (omen && !isTarget) {
+    const isBoss = omen.type === 'boss';
+    const intensity = omen.intensity || 0.7;
+    colorRune = isBoss
+      ? `rgba(217, 70, 239, ${(0.55 + intensity * 0.4) * pulse})`
+      : `rgba(239, 68, 68, ${(0.55 + intensity * 0.4) * pulse})`;
+    shadowCol = isBoss ? '#c084fc' : '#ef4444';
+    glowBlur = 12 + intensity * 6;
+    lineW = 2.8;
+  }
+
+  ctx.shadowColor = shadowCol;
   ctx.shadowBlur = glowBlur;
   ctx.strokeStyle = colorRune;
-  ctx.lineWidth = isTarget ? 3.5 : 2;
+  ctx.lineWidth = lineW;
 
   ctx.beginPath();
   if (dir === 'up') {
@@ -728,4 +743,154 @@ export function drawDoorTransitionEffects(ctx) {
 
   ctx.restore();
 }
+
+// ----------------------------------------------------
+// 👁️ 5. 문틈 너머 옆방 기척 연출 (Cross-Window Door Omen)
+// ----------------------------------------------------
+/**
+ * 인접한 옆방(문 건너편 창)에 몬스터나 Stage 5 보스가 있을 때,
+ * 해당 방향 문턱에서 검붉은/보랏빛 아지랑이와 불길한 안광이 스멀스멀 새어 나오는 연출
+ */
+export function drawDoorOmens(ctx, doorOmens) {
+  if (!doorOmens) return;
+  const dirs = Object.keys(doorOmens);
+  if (dirs.length === 0) return;
+
+  const { W, H, CX, CY } = getDim(ctx);
+  const now = Date.now();
+
+  ctx.save();
+
+  for (const dir of dirs) {
+    const omen = doorOmens[dir];
+    if (!omen) continue;
+
+    const isBoss = omen.type === 'boss';
+    const intensity = Math.max(0.35, Math.min(1, omen.intensity ?? 0.7));
+    const isChasing = Boolean(omen.isChasing);
+
+    // 문턱 중심(tx, ty) 및 방 안쪽(+Y)을 향하는 로컬 좌표계 회전각 설정
+    let tx = CX, ty = CY, rot = 0;
+    if (dir === 'up') {
+      tx = CX; ty = WALL; rot = 0;
+    } else if (dir === 'down') {
+      tx = CX; ty = H - WALL; rot = Math.PI;
+    } else if (dir === 'left') {
+      tx = WALL; ty = CY; rot = -Math.PI / 2;
+    } else if (dir === 'right') {
+      tx = W - WALL; ty = CY; rot = Math.PI / 2;
+    }
+
+    ctx.save();
+    ctx.translate(tx, ty);
+    ctx.rotate(rot);
+
+    const pulseSpeed = isChasing || isBoss ? 140 : 210;
+    const breath = Math.sin(now / pulseSpeed) * 0.5 + 0.5;
+    const mistDepth = 30 + intensity * 26 + breath * 8;
+    const halfDoor = DOOR_W / 2;
+
+    // 1. 문턱 바닥으로 번져 나오는 심연의 그림자 & 붉은/보랏빛 안개 풀
+    const poolGrad = ctx.createRadialGradient(0, -2, 4, 0, 4, mistDepth);
+    if (isBoss) {
+      poolGrad.addColorStop(0, `rgba(192, 38, 211, ${0.42 * intensity})`);
+      poolGrad.addColorStop(0.45, `rgba(126, 34, 206, ${0.24 * intensity})`);
+      poolGrad.addColorStop(0.8, `rgba(15, 5, 28, ${0.18 * intensity})`);
+      poolGrad.addColorStop(1, 'rgba(15, 5, 28, 0)');
+    } else {
+      poolGrad.addColorStop(0, `rgba(220, 38, 38, ${0.40 * intensity})`);
+      poolGrad.addColorStop(0.45, `rgba(127, 29, 29, ${0.24 * intensity})`);
+      poolGrad.addColorStop(0.8, `rgba(12, 4, 8, ${0.18 * intensity})`);
+      poolGrad.addColorStop(1, 'rgba(12, 4, 8, 0)');
+    }
+    ctx.fillStyle = poolGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 2, halfDoor * 0.95, mistDepth, 0, 0, Math.PI);
+    ctx.fill();
+
+    // 2. 문틈에서 스멀스멀 피어오르는 5겹의 그림자·아지랑이 연기 결 (부드러운 테이퍼드 미스트 커튼)
+    const plumeCount = 5;
+    for (let i = 0; i < plumeCount; i++) {
+      const normX = (i / (plumeCount - 1)) * 2 - 1; // -1 .. +1
+      const baseX = normX * (halfDoor - 12);
+      const baseHalfW = 9 + (i % 2) * 3.5;
+      const edgeFalloff = 1 - Math.abs(normX) * 0.28;
+      const wavePhase = now / (175 + (i % 3) * 25) + i * 1.35;
+      const plumeH = (20 + (i % 3) * 7) * (0.75 + intensity * 0.45) * edgeFalloff + Math.sin(wavePhase) * 5;
+      const swayMid = Math.sin(wavePhase) * 5.5;
+      const swayTip = Math.cos(wavePhase * 0.85 + i) * 8;
+
+      const plumeGrad = ctx.createLinearGradient(baseX, -2, baseX + swayTip, plumeH);
+      if (isBoss) {
+        plumeGrad.addColorStop(0, `rgba(232, 121, 249, ${0.34 * intensity})`);
+        plumeGrad.addColorStop(0.45, `rgba(147, 51, 234, ${0.20 * intensity})`);
+        plumeGrad.addColorStop(1, 'rgba(88, 28, 135, 0)');
+      } else {
+        plumeGrad.addColorStop(0, `rgba(248, 113, 113, ${0.32 * intensity})`);
+        plumeGrad.addColorStop(0.45, `rgba(185, 28, 28, ${0.19 * intensity})`);
+        plumeGrad.addColorStop(1, 'rgba(69, 10, 10, 0)');
+      }
+
+      ctx.fillStyle = plumeGrad;
+      ctx.beginPath();
+      ctx.moveTo(baseX - baseHalfW, -2);
+      ctx.quadraticCurveTo(
+        baseX - baseHalfW * 0.35 + swayMid,
+        plumeH * 0.52,
+        baseX + swayTip,
+        plumeH
+      );
+      ctx.quadraticCurveTo(
+        baseX + baseHalfW * 0.35 + swayMid,
+        plumeH * 0.52,
+        baseX + baseHalfW,
+        -2
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 3. 문턱에서 반원형으로 낮게 맥동하는 기척 파동 (Omen Pulse Ripple)
+    const rippleCycle = (now * (isChasing || isBoss ? 0.00095 : 0.00065)) % 1;
+    const rippleR = 8 + rippleCycle * (26 + intensity * 14);
+    const rippleAlpha = (1 - rippleCycle) * (0.32 * intensity);
+    if (rippleAlpha > 0.02) {
+      ctx.strokeStyle = isBoss
+        ? `rgba(232, 121, 249, ${rippleAlpha})`
+        : `rgba(248, 113, 113, ${rippleAlpha})`;
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.arc(0, 0, rippleR, Math.PI * 0.12, Math.PI * 0.88);
+      ctx.stroke();
+    }
+
+    // 4. 문틈 어둠(Recess) 속에서 언뜻 비치는 불길한 안광 (Peering Glowing Eyes)
+    const eyeDriftX = Math.sin(now / 420) * 4.5;
+    const eyeDriftY = -WALL * 0.48 + Math.cos(now / 340) * 1.2;
+    const blinkWave = Math.sin(now / 260);
+    const eyeAlpha = (0.55 + 0.45 * (blinkWave * 0.5 + 0.5)) * Math.min(1, intensity + 0.15);
+
+    ctx.save();
+    ctx.globalAlpha = eyeAlpha;
+    ctx.shadowColor = isBoss ? '#d946ef' : '#ff1e42';
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = isBoss ? '#f5d0fe' : '#fecaca';
+
+    // 왼쪽 안광
+    ctx.beginPath();
+    ctx.ellipse(eyeDriftX - 5, eyeDriftY, 2.3, 1.4, 0.18, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 오른쪽 안광
+    ctx.beginPath();
+    ctx.ellipse(eyeDriftX + 5, eyeDriftY, 2.3, 1.4, -0.18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
 

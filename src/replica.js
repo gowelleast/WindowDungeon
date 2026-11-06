@@ -16,6 +16,7 @@ import {
   drawMonster,
   drawDungeonLighting,
   drawDoorTransitionEffects,
+  drawDoorOmens,
   triggerDoorTransitionEffect,
   hasActiveDoorTransition,
   drawHUD
@@ -96,6 +97,7 @@ let latestTickData = null;
 let wasPlayerHere = false;
 let wasMonsterHere = false;
 let wasStageEntityHere = false;
+let wasDoorOmenHere = false;
 let lockedAlertTimer = 0;
 let toastTimer = 0;
 let toastText = '';
@@ -132,6 +134,77 @@ function checkDoorTransitionEvent(transition) {
   }
 }
 
+function getNeighborCellId(dir) {
+  if (!roomData) return null;
+  if (roomData.neighborCells && roomData.neighborCells[dir]) {
+    return roomData.neighborCells[dir];
+  }
+  if (roomData.screenLabel !== undefined && typeof roomData.gx === 'number' && typeof roomData.gy === 'number') {
+    let nx = roomData.gx;
+    let ny = roomData.gy;
+    if (dir === 'up') ny -= 1;
+    else if (dir === 'down') ny += 1;
+    else if (dir === 'left') nx -= 1;
+    else if (dir === 'right') nx += 1;
+    return `${roomData.screenLabel}:${nx},${ny}`;
+  }
+  return null;
+}
+
+function computeDoorOmens() {
+  const isPlayerHere = Boolean(myCellId && latestTickData && latestTickData.activeCellId === myCellId);
+  if (!isPlayerHere) return null;
+  if (!roomData || !Array.isArray(roomData.doors) || roomData.doors.length === 0) return null;
+  let omens = null;
+
+  for (const dir of roomData.doors) {
+    const adjCellId = getNeighborCellId(dir);
+    if (!adjCellId) continue;
+
+    // Stage 1~4: 바로 옆방에 그림자 몬스터가 있을 때
+    if (currentStage !== 5 && latestMonster && latestMonster.cellId === adjCellId) {
+      let doorX = dynamicW / 2;
+      let doorY = dynamicH / 2;
+      if (dir === 'right') doorX = 0;
+      else if (dir === 'left') doorX = dynamicW;
+      else if (dir === 'down') doorY = 0;
+      else if (dir === 'up') doorY = dynamicH;
+
+      const mx = typeof latestMonster.lx === 'number' ? latestMonster.lx : dynamicW / 2;
+      const my = typeof latestMonster.ly === 'number' ? latestMonster.ly : dynamicH / 2;
+      const dist = Math.hypot(mx - doorX, my - doorY);
+      const maxDist = Math.hypot(dynamicW, dynamicH) * 0.85;
+      const proximity = Math.max(0, Math.min(1, 1 - dist / maxDist));
+      const isChasing = (latestMonster.state === 'chasing');
+      const intensity = Math.min(1, 0.45 + proximity * 0.45 + (isChasing ? 0.15 : 0));
+
+      if (!omens) omens = {};
+      omens[dir] = {
+        type: 'monster',
+        intensity,
+        proximity,
+        isChasing
+      };
+    } else if (
+      currentStage === 5 &&
+      latestBoss &&
+      latestBoss.state === 'searching' &&
+      latestBoss.cellId === adjCellId
+    ) {
+      // Stage 5: 보스 추격('searching') 페이즈에 바로 옆방에 심연의 마왕이 숨어 있을 때
+      if (!omens) omens = {};
+      omens[dir] = {
+        type: 'boss',
+        intensity: 0.9,
+        proximity: 0.85,
+        isChasing: true
+      };
+    }
+  }
+
+  return omens;
+}
+
 function renderFrame() {
   pendingRafId = null;
   if (isVictory) return;
@@ -147,6 +220,7 @@ function renderFrame() {
   }
 
   const isPlayerHere = Boolean(myCellId && latestTickData && latestTickData.activeCellId === myCellId);
+  const doorOmens = computeDoorOmens();
 
   // 1. 방 바닥, 벽, 문 렌더링 (스테이지별 테마, 황금방, Stage 2 영토, Stage 3 레이저, 또는 Stage 4 성소/오라 포함)
   const isSwordHere = Boolean(currentStage === 4 && latestFlyingSword && latestFlyingSword.cellId === myCellId);
@@ -159,7 +233,8 @@ function renderFrame() {
     isLaserConnected: (currentStage === 3 && laserConnected),
     hasForgeAura: isSwordHere && !hasLegendarySword,
     hasLegendarySword: (currentStage === 4 && hasLegendarySword && isSwordHere),
-    swordAwakenProgress
+    swordAwakenProgress,
+    doorOmens
   });
 
   // 2~3. 스테이지별 중앙 오브젝트 렌더링
@@ -226,9 +301,11 @@ function renderFrame() {
   if (isPlayerHere) {
     drawPlayer(ctx, latestTickData);
     drawDungeonLighting(ctx, latestTickData, lightingOpts);
+    drawDoorOmens(ctx, doorOmens);
     if (currentPrompt) drawPrompt(ctx, currentPrompt);
   } else {
     drawDungeonLighting(ctx, null, lightingOpts);
+    drawDoorOmens(ctx, doorOmens);
   }
 
   // 6. 크로스 윈도우 문 통과 전환 파티클 이펙트 (출발 창 & 도착 창 동시 연출)
@@ -752,21 +829,25 @@ channel.on(MSG.TICK, (data) => {
     )
   );
   const isStageEntityHere = isStage3ActiveHere || isStage4ActiveHere || isStage5ActiveHere;
+  const hasDoorOmenHere = Boolean(computeDoorOmens());
 
   const presenceChanged =
     (isPlayerHere !== wasPlayerHere) ||
     (isMonsterHere !== wasMonsterHere) ||
     (isStageEntityHere !== wasStageEntityHere) ||
+    (hasDoorOmenHere !== wasDoorOmenHere) ||
     flagOwnerChanged;
   wasPlayerHere = isPlayerHere;
   wasMonsterHere = isMonsterHere;
   wasStageEntityHere = isStageEntityHere;
+  wasDoorOmenHere = hasDoorOmenHere;
 
   // 다중 창(15개 이상) 최적화: 비활성 빈 방은 3틱(10Hz)마다 렌더링하고, 활성/중요 방만 30Hz 즉시 렌더링
   const isImportantRoom =
     isPlayerHere ||
     isMonsterHere ||
     isStageEntityHere ||
+    hasDoorOmenHere ||
     presenceChanged ||
     stageTransition.active ||
     (currentStage === 1 && (

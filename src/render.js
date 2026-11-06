@@ -9,7 +9,8 @@ export {
   drawDungeonLighting,
   triggerDoorTransitionEffect,
   hasActiveDoorTransition,
-  drawDoorTransitionEffects
+  drawDoorTransitionEffects,
+  drawDoorOmens
 } from './render/room.js';
 
 export {

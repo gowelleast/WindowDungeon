@@ -376,8 +376,18 @@ export function getPrismDirsSnapshot() {
 
 export function buildAssignPayload(c, doorTransition = null) {
   const { currentStage } = world;
+  const neighborCells = {};
+  if (Array.isArray(c.doors)) {
+    for (const dir of c.doors) {
+      const adj = getAdjacentCell(c.screenLabel, c.gx, c.gy, dir);
+      if (adj) {
+        neighborCells[dir] = getCellId(adj.screen.label, adj.gx, adj.gy);
+      }
+    }
+  }
   return {
     ...c,
+    neighborCells,
     stage: currentStage,
     isExitRoom: (currentStage === 1 && c.id === world.exitCellId),
     isKeyRoom: (currentStage === 1 && c.id === world.keyCellId),
