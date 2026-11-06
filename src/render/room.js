@@ -501,18 +501,20 @@ export function drawDungeonLighting(ctx, playerState = null, lightingOpts = {}) 
       ctx.restore();
       return;
     } else {
-      // 다른 방들이 모두 닫힌 뒤 성검을 잡은 방에서(0 -> 1): 맵과 배경의 밝음이 성검(tx, ty)으로 수축·흡수되며 어두워짐!
+      // 다른 방들이 모두 닫힌 뒤 성검을 잡은 방에서(0 -> 1): 맵과 배경의 밝음이 성검(tx, ty)으로 우아하게 수축·흡수되며 어두워짐!
       const prog = Math.max(0, Math.min(1, swordAwakenProgress));
+      const ease = prog < 0.5 ? 4 * prog * prog * prog : 1 - Math.pow(-2 * prog + 2, 3) / 2;
       const tx = swordPos ? swordPos.x : (playerState ? playerState.lx : CX);
       const ty = swordPos ? swordPos.y : (playerState ? playerState.ly : CY);
-      const maxR = Math.hypot(W, H);
-      const shrinkR = Math.max(22, maxR * (1 - prog * 0.88));
-      const innerR = Math.max(6, shrinkR * 0.25);
+      const maxR = Math.hypot(W, H) * 0.92;
+      const shrinkR = Math.max(30, maxR * (1 - ease * 0.85));
+      const innerR = Math.max(8, shrinkR * 0.28);
 
       const absorbGrad = ctx.createRadialGradient(tx, ty, innerR, tx, ty, shrinkR);
-      absorbGrad.addColorStop(0, 'rgba(254, 240, 138, 0)');
-      absorbGrad.addColorStop(0.55, `rgba(4, 6, 9, ${prog * 0.45})`);
-      absorbGrad.addColorStop(1, `rgba(4, 6, 9, ${0.14 + prog * 0.68})`);
+      absorbGrad.addColorStop(0, 'rgba(254, 249, 195, 0)');
+      absorbGrad.addColorStop(0.45, `rgba(15, 23, 42, ${ease * 0.35})`);
+      absorbGrad.addColorStop(0.78, `rgba(6, 9, 15, ${0.08 + ease * 0.58})`);
+      absorbGrad.addColorStop(1, `rgba(3, 5, 10, ${0.14 + ease * 0.72})`);
 
       ctx.fillStyle = absorbGrad;
       ctx.fillRect(0, 0, W, H);

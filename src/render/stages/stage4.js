@@ -170,54 +170,99 @@ export function drawStage4ForgeAndSword(ctx, stage4State) {
     }
   }
 
-  // 2. 다른 방들이 모두 꺼진 뒤 성검으로 빛이 모이는 연출 (성검 본체 아래쪽에 먼저 렌더링)
+  // 2. 다른 방들이 모두 꺼진 뒤 성검으로 방 전체의 빛이 응축·흡수되는 연출 (성검 본체 아래쪽에 먼저 렌더링)
   if (hasLegendarySword && swordAwakenProgress > 0 && flyingSword && flyingSword.cellId === myCellId) {
     const sx = flyingSword.lx ?? CX;
     const sy = flyingSword.ly ?? CY;
-    const awaken = Math.max(0.05, Math.min(1, swordAwakenProgress));
+    const t = Math.max(0.02, Math.min(1, swordAwakenProgress));
+    const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
-    // (2-A) 방 외곽에서 성검(sx, sy)으로 수축하며 빨려 들어가는 빛의 링 3겹
-    for (let i = 0; i < 3; i++) {
-      const inwardPhase = ((now * 0.0032) + i / 3) % 1;
-      const waveR = Math.max(8, (1 - inwardPhase) * 145 * (1 - awaken * 0.45));
-      ctx.strokeStyle = `rgba(254, 240, 138, ${inwardPhase * 0.85})`;
-      ctx.lineWidth = 2 + inwardPhase * 1.5;
-      ctx.beginPath();
-      ctx.arc(sx, sy, waveR, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
 
-    // (2-B) 사방 14방향에서 맵의 밝은 빛 입자들이 성검 속으로 빨려 들어가는 광선 스트림
-    const numStreams = 14;
-    for (let i = 0; i < numStreams; i++) {
-      const sPhase = ((now * 0.004) + (i * 0.17)) % 1;
-      const angle = (i * Math.PI * 2 / numStreams) - (now * 0.0012);
-      const dist = (1 - sPhase) * 150 * (1 - awaken * 0.35);
-      const tailDist = dist + 24;
-
-      const px = sx + Math.cos(angle) * dist;
-      const py = sy + Math.sin(angle) * dist;
-      const tx = sx + Math.cos(angle) * tailDist;
-      const ty = sy + Math.sin(angle) * tailDist;
-
-      ctx.strokeStyle = `rgba(254, 240, 138, ${0.35 + sPhase * 0.65})`;
-      ctx.lineWidth = 2.2;
-      ctx.beginPath();
-      ctx.moveTo(tx, ty);
-      ctx.lineTo(px, py);
-      ctx.stroke();
-    }
-
-    // (2-C) 빛을 흡수하며 점점 날카롭게 응축되는 성검 중심 코어 광채
-    const coreR = Math.max(18, 86 * (1 - awaken * 0.65));
-    const pillarGrad = ctx.createRadialGradient(sx, sy, 2, sx, sy, coreR);
-    pillarGrad.addColorStop(0, '#ffffff');
-    pillarGrad.addColorStop(0.5, 'rgba(254, 240, 138, 0.85)');
-    pillarGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
-    ctx.fillStyle = pillarGrad;
+    // (2-A) 방 전체를 채우던 광원이 성검 중심으로 수축하며 밝기가 밀도 있게 응축되는 볼류메트릭 후광
+    const outerHaloR = Math.max(28, 220 * (1 - ease * 0.82));
+    const haloGrad = ctx.createRadialGradient(sx, sy, 2, sx, sy, outerHaloR);
+    haloGrad.addColorStop(0, `rgba(255, 255, 255, ${0.5 + ease * 0.45})`);
+    haloGrad.addColorStop(0.25, `rgba(254, 249, 195, ${0.42 + (1 - ease) * 0.2})`);
+    haloGrad.addColorStop(0.6, `rgba(250, 204, 21, ${(1 - ease) * 0.28})`);
+    haloGrad.addColorStop(1, 'rgba(245, 158, 11, 0)');
+    ctx.fillStyle = haloGrad;
     ctx.beginPath();
-    ctx.arc(sx, sy, coreR, 0, Math.PI * 2);
+    ctx.arc(sx, sy, outerHaloR, 0, Math.PI * 2);
     ctx.fill();
+
+    // (2-B) 성검으로 수렴하는 부드러운 원뿔형 빛기둥 (Volumetric God-Ray Cones — 선이 아닌 부드러운 면 광선)
+    const rayCount = 6;
+    const maxRayLen = Math.max(36, 190 * (1 - ease * 0.72));
+    for (let i = 0; i < rayCount; i++) {
+      const baseAngle = (i * Math.PI * 2 / rayCount) + (now * 0.00045 * (i % 2 === 0 ? 1 : -1));
+      const spread = (0.14 + (i % 2) * 0.05) * (1 - ease * 0.35);
+      const rayLen = maxRayLen * (0.85 + 0.15 * Math.sin(now * 0.003 + i * 1.7));
+
+      const x1 = sx + Math.cos(baseAngle - spread) * rayLen;
+      const y1 = sy + Math.sin(baseAngle - spread) * rayLen;
+      const x2 = sx + Math.cos(baseAngle + spread) * rayLen;
+      const y2 = sy + Math.sin(baseAngle + spread) * rayLen;
+      const midX = sx + Math.cos(baseAngle) * rayLen;
+      const midY = sy + Math.sin(baseAngle) * rayLen;
+
+      const coneAlpha = Math.sin(t * Math.PI) * 0.26 + (1 - ease) * 0.12;
+      const coneGrad = ctx.createLinearGradient(sx, sy, midX, midY);
+      coneGrad.addColorStop(0, `rgba(255, 255, 255, ${coneAlpha * 1.3})`);
+      coneGrad.addColorStop(0.45, `rgba(254, 240, 138, ${coneAlpha * 0.7})`);
+      coneGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+
+      ctx.fillStyle = coneGrad;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // (2-C) 방 안의 빛이 성검 코어로 조용히 수축하는 소프트 링 펄스 (경계선이 없는 부드러운 빛의 파동)
+    for (let i = 0; i < 2; i++) {
+      const ringProgress = ((now * 0.0014) + i * 0.5) % 1;
+      const ringR = Math.max(12, outerHaloR * (1 - ringProgress));
+      const ringAlpha = Math.sin(ringProgress * Math.PI) * (0.35 * (1 - ease * 0.5));
+      const ringGrad = ctx.createRadialGradient(sx, sy, Math.max(1, ringR - 14), sx, sy, ringR + 6);
+      ringGrad.addColorStop(0, 'rgba(254, 240, 138, 0)');
+      ringGrad.addColorStop(0.6, `rgba(254, 249, 195, ${ringAlpha})`);
+      ringGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+
+      ctx.fillStyle = ringGrad;
+      ctx.beginPath();
+      ctx.arc(sx, sy, ringR + 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // (2-D) 빛이 모두 모였을 때 검신에서 날카롭게 빛나는 십자 아나모픽 렌즈 플레어
+    const flareIntensity = Math.sin(t * Math.PI);
+    const vLen = 30 + flareIntensity * 46;
+    const hLen = 22 + flareIntensity * 34;
+    const flareAlpha = 0.4 + flareIntensity * 0.55;
+
+    const vGrad = ctx.createLinearGradient(sx, sy - vLen, sx, sy + vLen);
+    vGrad.addColorStop(0, 'rgba(254, 240, 138, 0)');
+    vGrad.addColorStop(0.5, `rgba(255, 255, 255, ${flareAlpha})`);
+    vGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+    ctx.fillStyle = vGrad;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 2, 2.2, vLen, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const hGrad = ctx.createLinearGradient(sx - hLen, sy - 2, sx + hLen, sy - 2);
+    hGrad.addColorStop(0, 'rgba(254, 240, 138, 0)');
+    hGrad.addColorStop(0.5, `rgba(254, 249, 195, ${flareAlpha * 0.9})`);
+    hGrad.addColorStop(1, 'rgba(254, 240, 138, 0)');
+    ctx.fillStyle = hGrad;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy - 2, hLen, 1.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
   }
 
   // 3. 날아다니는 자아 성검(🗡️) 및 포획된 성검 본체 렌더링
