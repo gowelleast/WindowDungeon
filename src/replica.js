@@ -95,6 +95,7 @@ let latestMonster = null;
 let latestTickData = null;
 let wasPlayerHere = false;
 let wasMonsterHere = false;
+let wasStageEntityHere = false;
 let lockedAlertTimer = 0;
 let toastTimer = 0;
 let toastText = '';
@@ -674,6 +675,7 @@ channel.on(MSG.TICK, (data) => {
   hasBootsItem = !!data.hasBootsItem;
   latestMonster = data.monster;
 
+  let flagOwnerChanged = false;
   if (currentStage === 1) {
     if (data.exitCellId === myCellId) isExitRoom = true;
     if (data.keyCellId === myCellId) isKeyRoom = true;
@@ -688,7 +690,9 @@ channel.on(MSG.TICK, (data) => {
     clearStage1RoomFlags();
     if (currentStage === 2) {
       if (data.flagOwners && data.flagOwners[myCellId]) {
-        myFlagOwner = data.flagOwners[myCellId];
+        const nextOwner = data.flagOwners[myCellId];
+        flagOwnerChanged = (nextOwner !== myFlagOwner);
+        myFlagOwner = nextOwner;
       }
     } else if (currentStage === 3) {
       laserSourceCellId = data.laserSourceCellId || laserSourceCellId;
@@ -724,23 +728,48 @@ channel.on(MSG.TICK, (data) => {
     checkDoorTransitionEvent(data.doorTransition);
   }
 
-  const presenceChanged = (isPlayerHere !== wasPlayerHere) || (isMonsterHere !== wasMonsterHere);
+  const isStage3ActiveHere = currentStage === 3 && Boolean(
+    myLaserSegment || myCellId === laserTargetCellId || myCellId === laserSourceCellId
+  );
+  const isStage4ActiveHere = currentStage === 4 && Boolean(
+    latestFlyingSword && (
+      latestFlyingSword.cellId === myCellId ||
+      (latestFlyingSword.lastTransit && (
+        latestFlyingSword.lastTransit.fromCellId === myCellId ||
+        latestFlyingSword.lastTransit.toCellId === myCellId
+      ))
+    )
+  );
+  const isStage5ActiveHere = currentStage === 5 && Boolean(
+    latestBoss && (
+      latestBoss.cellId === myCellId ||
+      latestBoss.barrageCellId === myCellId ||
+      (latestBoss.slashEffect && latestBoss.slashEffect.cellId === myCellId)
+    )
+  );
+  const isStageEntityHere = isStage3ActiveHere || isStage4ActiveHere || isStage5ActiveHere;
+
+  const presenceChanged =
+    (isPlayerHere !== wasPlayerHere) ||
+    (isMonsterHere !== wasMonsterHere) ||
+    (isStageEntityHere !== wasStageEntityHere) ||
+    flagOwnerChanged;
   wasPlayerHere = isPlayerHere;
   wasMonsterHere = isMonsterHere;
+  wasStageEntityHere = isStageEntityHere;
 
-  // 다중 창(15개 이상) 최적화: 비활성 빈 방은 3틱(10Hz)마다 렌더링하고, 활성/중요 방은 30Hz 즉시 렌더링
+  // 다중 창(15개 이상) 최적화: 비활성 빈 방은 3틱(10Hz)마다 렌더링하고, 활성/중요 방만 30Hz 즉시 렌더링
   const isImportantRoom =
     isPlayerHere ||
     isMonsterHere ||
+    isStageEntityHere ||
     presenceChanged ||
     stageTransition.active ||
-    isExitRoom ||
-    (isKeyRoom && !hasKey) ||
-    (isGoldenRoom && !goldenItemCollected) ||
-    currentStage === 2 ||
-    currentStage === 3 ||
-    currentStage === 4 ||
-    currentStage === 5 ||
+    (currentStage === 1 && (
+      isExitRoom ||
+      (isKeyRoom && !hasKey) ||
+      (isGoldenRoom && !goldenItemCollected)
+    )) ||
     hasActiveDoorTransition();
   if (isImportantRoom || (data.tickCount % 3 === 0)) {
     scheduleRender();

@@ -41,6 +41,9 @@ let currentStage = 1;
 let isStageTransition = false;
 const closingWinIds = new Set();
 const flagOwners = new Map(); // cellId -> 'neutral' | 'player' | 'monster'
+let flagOwnersDirty = true;
+let cachedFlagOwnersObj = {};
+let cachedFlagScores = { playerScore: 0, monsterScore: 0 };
 let stage2TimeLeft = 0;       // 남은 틱 수
 let isOvertime = false;
 
@@ -49,6 +52,8 @@ let laserSourceCellId = null;
 let laserTargetCellId = null;
 let laserTargetDiscovered = false;
 const prismDirs = new Map();  // cellId -> 'up' | 'right' | 'down' | 'left'
+let prismDirsDirty = true;
+let cachedPrismDirsObj = {};
 let laserSegments = [];       // Array<{ cellId, inDir, outDir, blockedByClosedRoom, isCoreHit }>
 let laserConnected = false;
 let laserChargeTimer = 0;     // 코어 연결 후 공명 연출 타이머
@@ -57,6 +62,8 @@ let victoryTimestamp = 0;     // 승리 직후 스페이스바 연타로 인한 
 
 // 도망치는 자아 성검 & 철창 레버 상태 (Stage 4 -> Stage 5 유지)
 const closedGates = new Set(); // 정렬된 두 인접 방 ID 쌍: "cellA<->cellB"
+let closedGatesDirty = true;
+let cachedClosedDoorsByCell = {};
 const flyingSword = {
   cellId: null,
   lx: CONFIG.ROOM_OUTER_W / 2,
@@ -291,6 +298,7 @@ function getClosedDoorsForCell(cellId) {
 
 function getClosedDoorsMapObj() {
   if (currentStage !== 4 || closedGates.size === 0) return {};
+  if (!closedGatesDirty) return cachedClosedDoorsByCell;
   const mapObj = {};
   for (const c of allReachableCells) {
     const closed = getClosedDoorsForCell(c.id);
@@ -306,7 +314,32 @@ function getClosedDoorsMapObj() {
       }
     }
   }
-  return mapObj;
+  cachedClosedDoorsByCell = mapObj;
+  closedGatesDirty = false;
+  return cachedClosedDoorsByCell;
+}
+
+function getFlagOwnersSnapshot() {
+  if (flagOwnersDirty) {
+    cachedFlagOwnersObj = Object.fromEntries(flagOwners);
+    let playerScore = 0;
+    let monsterScore = 0;
+    for (const owner of flagOwners.values()) {
+      if (owner === 'player') playerScore++;
+      else if (owner === 'monster') monsterScore++;
+    }
+    cachedFlagScores = { playerScore, monsterScore };
+    flagOwnersDirty = false;
+  }
+  return cachedFlagOwnersObj;
+}
+
+function getPrismDirsSnapshot() {
+  if (prismDirsDirty) {
+    cachedPrismDirsObj = Object.fromEntries(prismDirs);
+    prismDirsDirty = false;
+  }
+  return cachedPrismDirsObj;
 }
 
 function buildAssignPayload(c, doorTransition = null) {
@@ -640,6 +673,7 @@ function initStage2(startCell) {
     placeMonsterAtFarCell(reachableCells, 12); // 0.4초 뒤 즉시 민첩하게 땅따먹기 시작
     flagOwners.set(monster.cellId, 'monster');
   }
+  flagOwnersDirty = true;
 
   // Stage 2 제한 시간: (전체 방 개수 + 5초), 최대 20초
   const stage2DurationSec = Math.min(20, Math.max(10, allCells.length + 5));
@@ -795,6 +829,7 @@ function initStage3(startCell) {
       prismDirs.set(c.id, randomDir);
     }
   }
+  prismDirsDirty = true;
 
   computeLaserPath();
 
@@ -820,6 +855,7 @@ function initStage4(startCell) {
   swordAwakenTimer = 0;
   stage4SequencePhase = 'none';
   closedGates.clear();
+  closedGatesDirty = true;
 
   // 시작 방 중앙에서 자아를 가진 성검이 깨어나 잠시 후 열린 문으로 고속 도주!
   flyingSword.cellId = startCell.id;
@@ -932,13 +968,10 @@ function initStage5(startCell) {
 }
 
 function getFlagScores() {
-  let playerScore = 0;
-  let monsterScore = 0;
-  for (const owner of flagOwners.values()) {
-    if (owner === 'player') playerScore++;
-    else if (owner === 'monster') monsterScore++;
+  if (flagOwnersDirty) {
+    getFlagOwnersSnapshot();
   }
-  return { playerScore, monsterScore };
+  return cachedFlagScores;
 }
 
 function triggerFinalVictory() {
@@ -1095,6 +1128,7 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
 
   if (currentStage === 2 && !flagOwners.has(nextId)) {
     flagOwners.set(nextId, 'neutral');
+    flagOwnersDirty = true;
   }
 
   player.cellId = nextId;
@@ -1110,6 +1144,7 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
       const validDoors = cwOrder.filter(d => openedCell.doors.includes(d));
       if (validDoors.length > 0) {
         prismDirs.set(nextId, validDoors[0]);
+        prismDirsDirty = true;
       }
     }
     computeLaserPath();
@@ -1302,6 +1337,7 @@ function updateMonsterAI() {
     const distToCenter = Math.hypot(monster.lx - cx, monster.ly - cy);
     if (distToCenter < 28) {
       flagOwners.set(monster.cellId, 'monster');
+      flagOwnersDirty = true;
       channel.send(MSG.FLAG_CAPTURED, {
         cellId: monster.cellId,
         owner: 'monster',
@@ -1357,6 +1393,7 @@ function updateMonsterAI() {
         monster.passedCenter = true;
         if (flagOwners.get(monster.cellId) !== 'monster') {
           flagOwners.set(monster.cellId, 'monster');
+          flagOwnersDirty = true;
           channel.send(MSG.FLAG_CAPTURED, {
             cellId: monster.cellId,
             owner: 'monster',
@@ -1585,6 +1622,7 @@ function updateFlyingSwordAI() {
         const gateKey = getGateKey(flyingSword.cellId, breakDir);
         if (gateKey) {
           closedGates.delete(gateKey);
+          closedGatesDirty = true;
           channel.send(MSG.GATE_TOGGLED, {
             cellId: flyingSword.cellId,
             dir: breakDir,
@@ -2226,6 +2264,7 @@ setInterval(() => {
     // 깃발 근처에서 [Space] 키 입력 시 내 땅('player')으로 점령!
     if (isNearFlag && keys.has(' ') && flagOwners.get(player.cellId) !== 'player') {
       flagOwners.set(player.cellId, 'player');
+      flagOwnersDirty = true;
       console.log(`[Master] 플레이어 방 점령! (${player.cellId})`);
       channel.send(MSG.FLAG_CAPTURED, {
         cellId: player.cellId,
@@ -2262,8 +2301,6 @@ setInterval(() => {
     const distToNode = Math.hypot(player.lx - cx, player.ly - cy);
     isNearPrism = (player.cellId !== laserTargetCellId) && (distToNode < player.radius + 38);
 
-    computeLaserPath();
-
     // 발사대(⚡) 또는 반사 프리즘(💎) 근처에서 [Space] 키 입력 시 출사 방향 시계방향 회전!
     if (isNearPrism && spaceJustPressed && !laserConnected && currentCell) {
       const cwOrder = ['up', 'right', 'down', 'left'];
@@ -2281,6 +2318,7 @@ setInterval(() => {
         const nextDir = candidates[(currIdx + 1) % candidates.length];
 
         prismDirs.set(player.cellId, nextDir);
+        prismDirsDirty = true;
         computeLaserPath();
 
         console.log(`[Master] 프리즘 회전 (${player.cellId}): ${currentDir} -> ${nextDir} (코어 연결: ${laserConnected})`);
@@ -2393,6 +2431,7 @@ setInterval(() => {
             closedGates.add(gateKey);
             isClosed = true;
           }
+          closedGatesDirty = true;
 
           // 레버 조작 직후 의도치 않게 문 밖으로 즉시 이동하지 않도록 짧은 쿨다운 및 프롬프트 해제
           doorTransferCooldown = Math.max(doorTransferCooldown, 10);
@@ -2570,9 +2609,9 @@ setInterval(() => {
     ? lastDoorTransition
     : null;
 
-  const { playerScore, monsterScore } = getFlagScores();
-  const flagOwnersObj = (currentStage === 2) ? Object.fromEntries(flagOwners) : null;
-  const prismDirsObj = (currentStage === 3) ? Object.fromEntries(prismDirs) : null;
+  const { playerScore, monsterScore } = (currentStage === 2) ? getFlagScores() : cachedFlagScores;
+  const flagOwnersObj = (currentStage === 2) ? getFlagOwnersSnapshot() : null;
+  const prismDirsObj = (currentStage === 3) ? getPrismDirsSnapshot() : null;
   const closedDoorsByCell = (currentStage === 4) ? getClosedDoorsMapObj() : null;
   const activeSwordTransit = (currentStage === 4 && flyingSword.lastTransit && (Date.now() - flyingSword.lastTransit.timestamp < 2200))
     ? flyingSword.lastTransit

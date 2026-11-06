@@ -1676,24 +1676,13 @@ export function drawTerritoryFlag(ctx, owner = 'neutral', isNearFlag = false) {
   // 5. 플레이어가 룬스톤 반경 내에 있고 아직 내 소유가 아닐 때: [SPACE] 점령 액션 배지 표시
   if (isNearFlag && !isPlayer) {
     const floatOffset = Math.sin(now / 140) * 2.5;
-    const btnW = 122;
-    const btnH = 26;
-    const btnX = CX - btnW / 2;
-    const btnY = CY - 58 + floatOffset;
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
-    ctx.strokeStyle = '#38bdf8';
-    ctx.lineWidth = 1.8;
-    ctx.shadowColor = '#0284c7';
-    ctx.shadowBlur = 10;
-    roundRect(ctx, btnX, btnY, btnW, btnH, 7);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.font = 'bold 11.5px "Outfit", sans-serif';
-    ctx.fillStyle = '#e0f2fe';
-    ctx.fillText('⚡ [SPACE] 점령', CX, btnY + btnH / 2 + 0.5);
+    drawFloatingActionBadge(ctx, '⚡ [SPACE] 점령', CX, CY - 58 + floatOffset, {
+      width: 122,
+      height: 26,
+      strokeColor: '#38bdf8',
+      shadowColor: '#0284c7',
+      textColor: '#e0f2fe'
+    });
   }
 
   ctx.restore();
@@ -2149,24 +2138,13 @@ export function drawStage3LaserAndNode(ctx, stage3State) {
 
     if (isNearPrism && !laserConnected) {
       const floatOffset = Math.sin(now / 140) * 2.5;
-      const btnW = 122;
-      const btnH = 26;
-      const btnX = CX - btnW / 2;
-      const btnY = CY - 62 + floatOffset;
-
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
-      ctx.strokeStyle = '#facc15';
-      ctx.lineWidth = 1.8;
-      ctx.shadowColor = '#eab308';
-      ctx.shadowBlur = 10;
-      roundRect(ctx, btnX, btnY, btnW, btnH, 7);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.font = 'bold 11.5px "Outfit", sans-serif';
-      ctx.fillStyle = '#fef08a';
-      ctx.fillText('🔄 [SPACE] 회전', CX, btnY + btnH / 2 + 0.5);
+      drawFloatingActionBadge(ctx, '🔄 [SPACE] 회전', CX, CY - 62 + floatOffset, {
+        width: 122,
+        height: 26,
+        strokeColor: '#facc15',
+        shadowColor: '#eab308',
+        textColor: '#fef08a'
+      });
     }
   } else {
     // =========================================================================
@@ -2252,24 +2230,13 @@ export function drawStage3LaserAndNode(ctx, stage3State) {
     // 플레이어가 근처에 있을 때: [SPACE] 회전 배지 표시
     if (isNearPrism && !laserConnected) {
       const floatOffset = Math.sin(now / 140) * 2.5;
-      const btnW = 122;
-      const btnH = 26;
-      const btnX = CX - btnW / 2;
-      const btnY = CY - 58 + floatOffset;
-
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 1.8;
-      ctx.shadowColor = '#0284c7';
-      ctx.shadowBlur = 10;
-      roundRect(ctx, btnX, btnY, btnW, btnH, 7);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.font = 'bold 11.5px "Outfit", sans-serif';
-      ctx.fillStyle = '#e0f2fe';
-      ctx.fillText('🔄 [SPACE] 회전', CX, btnY + btnH / 2 + 0.5);
+      drawFloatingActionBadge(ctx, '🔄 [SPACE] 회전', CX, CY - 58 + floatOffset, {
+        width: 122,
+        height: 26,
+        strokeColor: '#38bdf8',
+        shadowColor: '#0284c7',
+        textColor: '#e0f2fe'
+      });
     }
   }
 
@@ -2440,27 +2407,21 @@ export function drawStage4ForgeAndSword(ctx, stage4State) {
         btnY = CY - 46 + floatOffset;
       }
 
-      ctx.save();
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.94)';
-      ctx.strokeStyle = isClosed ? '#34d399' : '#f87171';
-      ctx.lineWidth = 1.8;
-      ctx.shadowColor = isClosed ? '#10b981' : '#ef4444';
-      ctx.shadowBlur = 10;
-      roundRect(ctx, btnX, btnY, btnW, btnH, 6);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.font = 'bold 11px "Outfit", sans-serif';
-      ctx.fillStyle = isClosed ? '#a7f3d0' : '#fecaca';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
+      drawFloatingActionBadge(
+        ctx,
         isClosed ? '🔓 [SPACE] 문 열기' : '🔒 [SPACE] 문 닫기',
         btnX + btnW / 2,
-        btnY + btnH / 2 + 0.5
+        btnY,
+        {
+          width: btnW,
+          height: btnH,
+          radius: 6,
+          font: 'bold 11px "Outfit", sans-serif',
+          strokeColor: isClosed ? '#34d399' : '#f87171',
+          shadowColor: isClosed ? '#10b981' : '#ef4444',
+          textColor: isClosed ? '#a7f3d0' : '#fecaca'
+        }
       );
-      ctx.restore();
     }
   }
 
@@ -2688,19 +2649,16 @@ export function drawStage4ForgeAndSword(ctx, stage4State) {
         const btnX = Math.max(8, Math.min(W - btnW - 8, sx - btnW / 2));
         const btnY = Math.max(28, sy - 50 + floatOffset);
 
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = '#eab308';
-        ctx.shadowBlur = 12;
-        roundRect(ctx, btnX, btnY, btnW, btnH, 7);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.font = 'bold 11.5px "Outfit", sans-serif';
-        ctx.fillStyle = '#fef08a';
-        ctx.fillText('🗡️ [SPACE] 잡기', btnX + btnW / 2, btnY + btnH / 2 + 0.5);
+        drawFloatingActionBadge(ctx, '🗡️ [SPACE] 잡기', btnX + btnW / 2, btnY, {
+          width: btnW,
+          height: btnH,
+          bgColor: 'rgba(15, 23, 42, 0.95)',
+          strokeColor: '#facc15',
+          lineWidth: 2,
+          shadowColor: '#eab308',
+          shadowBlur: 12,
+          textColor: '#fef08a'
+        });
       }
       ctx.restore();
     }
@@ -3170,21 +3128,16 @@ export function drawStage5BossAndArena(ctx, stage5State) {
       const btnX = Math.max(8, Math.min(W - btnW - 8, bx - btnW / 2));
       const btnY = Math.min(H - 34, by + 28 + floatOffset);
 
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-      ctx.strokeStyle = '#facc15';
-      ctx.lineWidth = 2;
-      ctx.shadowColor = '#eab308';
-      ctx.shadowBlur = 12;
-      roundRect(ctx, btnX, btnY, btnW, btnH, 7);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.shadowBlur = 0;
-      ctx.font = 'bold 11.5px "Outfit", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#fef08a';
-      ctx.fillText('⚔️ [SPACE] 공격', btnX + btnW / 2, btnY + btnH / 2 + 0.5);
+      drawFloatingActionBadge(ctx, '⚔️ [SPACE] 공격', btnX + btnW / 2, btnY, {
+        width: btnW,
+        height: btnH,
+        bgColor: 'rgba(15, 23, 42, 0.95)',
+        strokeColor: '#facc15',
+        lineWidth: 2,
+        shadowColor: '#eab308',
+        shadowBlur: 12,
+        textColor: '#fef08a'
+      });
     }
 
     // (2-I) 보스 최후의 초신성 폭발 연출 ('dying')
@@ -3424,8 +3377,9 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
     glowColor = hasKey ? '#eab308' : 'transparent';
   }
 
-  ctx.font = 'bold 11px "JetBrains Mono", monospace';
-  const badgeW = Math.max(114, Math.ceil(ctx.measureText(leftText).width) + 22);
+  const badgeFont = 'bold 11px "JetBrains Mono", monospace';
+  ctx.font = badgeFont;
+  const badgeW = Math.max(114, Math.ceil(measureTextCached(ctx, badgeFont, leftText)) + 22);
   const badgeH = 22;
   const badgeX = 6;
   const badgeY = 4;
@@ -3447,8 +3401,9 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
 
   // 2. 우상단 외곽: 미니맵 및 사운드 단축키 배지
   const hintText = `🗺️ [M] MAP  |  ${isMuted ? '🔇 [U] MUTE' : '🔊 [U] SFX'}`;
-  ctx.font = '10.5px "JetBrains Mono", monospace';
-  const hintW = Math.max(186, Math.ceil(ctx.measureText(hintText).width) + 28);
+  const hintFont = '10.5px "JetBrains Mono", monospace';
+  ctx.font = hintFont;
+  const hintW = Math.max(186, Math.ceil(measureTextCached(ctx, hintFont, hintText)) + 28);
   const hintH = 22;
   const hintX = W - 6 - hintW;
   const hintY = 4;
@@ -3490,8 +3445,9 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
     ctx.fillText('🔒 열쇠가 필요합니다', CX, toastY + toastH / 2);
   } else if (hudExtra && hudExtra.toastTimer > 0 && hudExtra.toastText) {
     const alpha = Math.min(1, hudExtra.toastTimer / 15);
-    ctx.font = '600 12px "Outfit", sans-serif';
-    const toastW = Math.max(220, Math.ceil(ctx.measureText(hudExtra.toastText).width) + 32);
+    const toastFont = '600 12px "Outfit", sans-serif';
+    ctx.font = toastFont;
+    const toastW = Math.max(220, Math.ceil(measureTextCached(ctx, toastFont, hudExtra.toastText)) + 32);
     const toastH = 26;
     const toastX = CX - toastW / 2;
     const toastY = 32;
@@ -3579,6 +3535,48 @@ export function drawPrompt(ctx, promptData) {
   ctx.fillStyle = '#ffffff';
   ctx.fillText(actionLabel, CX, boxY + 49);
 
+  ctx.restore();
+}
+
+// HUD 및 UI 텍스트 폭 캐시 (매 프레임 measureText 반복 호출 방지)
+const textWidthCache = new Map();
+function measureTextCached(ctx, font, text) {
+  const key = `${font}|${text}`;
+  const cached = textWidthCache.get(key);
+  if (cached !== undefined) return cached;
+  ctx.font = font;
+  const width = ctx.measureText(text).width;
+  if (textWidthCache.size > 256) {
+    textWidthCache.clear();
+  }
+  textWidthCache.set(key, width);
+  return width;
+}
+
+// 공통 플로팅 [SPACE] 액션 프롬프트 배지 렌더링 헬퍼
+function drawFloatingActionBadge(ctx, text, centerX, topY, opts = {}) {
+  const btnW = opts.width ?? 122;
+  const btnH = opts.height ?? 26;
+  const radius = opts.radius ?? 7;
+  const btnX = centerX - btnW / 2;
+  const btnY = topY;
+
+  ctx.save();
+  ctx.fillStyle = opts.bgColor || 'rgba(15, 23, 42, 0.94)';
+  ctx.strokeStyle = opts.strokeColor || '#38bdf8';
+  ctx.lineWidth = opts.lineWidth ?? 1.8;
+  ctx.shadowColor = opts.shadowColor || '#0284c7';
+  ctx.shadowBlur = opts.shadowBlur ?? 10;
+  roundRect(ctx, btnX, btnY, btnW, btnH, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.shadowBlur = 0;
+  ctx.font = opts.font || 'bold 11.5px "Outfit", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = opts.textColor || '#e0f2fe';
+  ctx.fillText(text, centerX, btnY + btnH / 2 + 0.5);
   ctx.restore();
 }
 

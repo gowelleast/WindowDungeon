@@ -502,8 +502,21 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   }
   targetCtx.stroke();
 
-  // 2. 모니터 하우징
+  // 2. 모니터 하우징 및 모니터별 동적 방 크기 설정 사전 캐싱
+  const screenLookup = new Map();
   for (const s of screens) {
+    const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+    screenLookup.set(s.label, {
+      screen: s,
+      cellCfg: {
+        ...CONFIG,
+        ROOM_OUTER_W: screenSizing.roomW,
+        ROOM_OUTER_H: screenSizing.roomH,
+        ROOM_SLOT_W: screenSizing.slotW,
+        ROOM_SLOT_H: screenSizing.slotH
+      }
+    });
+
     const dx = offsetX + (s.availLeft - minX) * scale;
     const dy = offsetY + (s.availTop - minY) * scale;
     const dw = s.availWidth * scale;
@@ -527,6 +540,23 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     targetCtx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 6, dy + 14);
   }
 
+  const getCellCanvasBox = (screenLabel, gx, gy) => {
+    const entry = screenLookup.get(screenLabel);
+    if (!entry) return null;
+    const rect = cellToScreenRect(entry.screen, gx, gy, entry.cellCfg);
+    const slotW = rect.slotWidth || rect.width;
+    const slotH = rect.slotHeight || rect.height;
+    return {
+      rect,
+      dx: offsetX + (rect.left - minX) * scale,
+      dy: offsetY + (rect.top - minY) * scale,
+      dw: slotW * scale,
+      dh: slotH * scale,
+      ratioX: slotW / (CONFIG.ROOM_OUTER_W || rect.width),
+      ratioY: slotH / (CONFIG.ROOM_OUTER_H || rect.height)
+    };
+  };
+
   const currentStage = (player && player.stage) || 1;
   const hasMapItem = Boolean(player && player.hasMapItem);
 
@@ -535,22 +565,9 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     if (hasMapItem && Array.isArray(player.allCells)) {
       for (const ghost of player.allCells) {
         if (cellMap.has(ghost.id)) continue;
-        const s = screens.find(sc => sc.label === ghost.screenLabel);
-        if (!s) continue;
-
-        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-        const cellCfg = {
-          ...CONFIG,
-          ROOM_OUTER_W: screenSizing.roomW,
-          ROOM_OUTER_H: screenSizing.roomH,
-          ROOM_SLOT_W: screenSizing.slotW,
-          ROOM_SLOT_H: screenSizing.slotH
-        };
-        const rect = cellToScreenRect(s, ghost.gx, ghost.gy, cellCfg);
-        const dx = offsetX + (rect.left - minX) * scale;
-        const dy = offsetY + (rect.top - minY) * scale;
-        const dw = (rect.slotWidth || rect.width) * scale;
-        const dh = (rect.slotHeight || rect.height) * scale;
+        const box = getCellCanvasBox(ghost.screenLabel, ghost.gx, ghost.gy);
+        if (!box) continue;
+        const { dx, dy, dw, dh } = box;
 
         const flagOwner = (currentStage === 2 && player.flagOwners) ? player.flagOwners[ghost.id] : null;
         const isExitGhost = (currentStage === 1 && player.exitCellId === ghost.id);
@@ -646,22 +663,9 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
         if (owner !== 'monster' || cellMap.has(fCellId)) continue;
         const parsed = parseCellId(fCellId);
         if (!parsed) continue;
-        const s = screens.find(sc => sc.label === parsed.screenLabel);
-        if (!s) continue;
-
-        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-        const cellCfg = {
-          ...CONFIG,
-          ROOM_OUTER_W: screenSizing.roomW,
-          ROOM_OUTER_H: screenSizing.roomH,
-          ROOM_SLOT_W: screenSizing.slotW,
-          ROOM_SLOT_H: screenSizing.slotH
-        };
-        const rect = cellToScreenRect(s, parsed.gx, parsed.gy, cellCfg);
-        const dx = offsetX + (rect.left - minX) * scale;
-        const dy = offsetY + (rect.top - minY) * scale;
-        const dw = (rect.slotWidth || rect.width) * scale;
-        const dh = (rect.slotHeight || rect.height) * scale;
+        const box = getCellCanvasBox(parsed.screenLabel, parsed.gx, parsed.gy);
+        if (!box) continue;
+        const { dx, dy, dw, dh } = box;
 
         targetCtx.save();
         targetCtx.fillStyle = 'rgba(239, 68, 68, 0.16)';
@@ -681,22 +685,9 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
       // 지도 아이템이 없더라도 Stage 4에서 떠돌이 성검이 날아간 미개척 방은 황금 점선으로 표시
       const parsed = parseCellId(player.flyingSword.cellId);
       if (parsed) {
-        const s = screens.find(sc => sc.label === parsed.screenLabel);
-        if (s) {
-          const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-          const cellCfg = {
-            ...CONFIG,
-            ROOM_OUTER_W: screenSizing.roomW,
-            ROOM_OUTER_H: screenSizing.roomH,
-            ROOM_SLOT_W: screenSizing.slotW,
-            ROOM_SLOT_H: screenSizing.slotH
-          };
-          const rect = cellToScreenRect(s, parsed.gx, parsed.gy, cellCfg);
-          const dx = offsetX + (rect.left - minX) * scale;
-          const dy = offsetY + (rect.top - minY) * scale;
-          const dw = (rect.slotWidth || rect.width) * scale;
-          const dh = (rect.slotHeight || rect.height) * scale;
-
+        const box = getCellCanvasBox(parsed.screenLabel, parsed.gx, parsed.gy);
+        if (box) {
+          const { dx, dy, dw, dh } = box;
           targetCtx.save();
           targetCtx.fillStyle = 'rgba(250, 204, 21, 0.18)';
           targetCtx.strokeStyle = '#facc15';
@@ -717,22 +708,9 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
 
   // 3. 개척된 방(Cell) 및 출입문(Doors) 그리기
   for (const cell of cellMap.values()) {
-    const s = screens.find(sc => sc.label === cell.screenLabel);
-    if (!s) continue;
-    
-    const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-    const cellCfg = {
-      ...CONFIG,
-      ROOM_OUTER_W: screenSizing.roomW,
-      ROOM_OUTER_H: screenSizing.roomH,
-      ROOM_SLOT_W: screenSizing.slotW,
-      ROOM_SLOT_H: screenSizing.slotH
-    };
-    const rect = cellToScreenRect(s, cell.gx, cell.gy, cellCfg);
-    const dx = offsetX + (rect.left - minX) * scale;
-    const dy = offsetY + (rect.top - minY) * scale;
-    const dw = (rect.slotWidth || rect.width) * scale;
-    const dh = (rect.slotHeight || rect.height) * scale;
+    const box = getCellCanvasBox(cell.screenLabel, cell.gx, cell.gy);
+    if (!box) continue;
+    const { dx, dy, dw, dh } = box;
 
     if (currentStage === 2) {
       const owner = (player && player.flagOwners && player.flagOwners[cell.id]) || 'neutral';
@@ -889,22 +867,10 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     const m = player.monster;
     const parsedMonster = parseCellId(m.cellId);
     if (parsedMonster) {
-      const s = screens.find(sc => sc.label === parsedMonster.screenLabel);
-
-      if (s) {
-        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-        const cellCfg = {
-          ...CONFIG,
-          ROOM_OUTER_W: screenSizing.roomW,
-          ROOM_OUTER_H: screenSizing.roomH,
-          ROOM_SLOT_W: screenSizing.slotW,
-          ROOM_SLOT_H: screenSizing.slotH
-        };
-        const rect = cellToScreenRect(s, parsedMonster.gx, parsedMonster.gy, cellCfg);
-        const ratioX = (rect.slotWidth || rect.width) / (CONFIG.ROOM_OUTER_W || rect.width);
-        const ratioY = (rect.slotHeight || rect.height) / (CONFIG.ROOM_OUTER_H || rect.height);
-        const mx = rect.left + m.lx * ratioX;
-        const my = rect.top + m.ly * ratioY;
+      const box = getCellCanvasBox(parsedMonster.screenLabel, parsedMonster.gx, parsedMonster.gy);
+      if (box) {
+        const mx = box.rect.left + m.lx * box.ratioX;
+        const my = box.rect.top + m.ly * box.ratioY;
 
         const mdx = offsetX + (mx - minX) * scale;
         const mdy = offsetY + (my - minY) * scale;
@@ -937,21 +903,10 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   // 5. 🟢 플레이어 실시간 레이더 핑(Ping)
   if (player && cellMap.has(player.activeCellId)) {
     const cell = cellMap.get(player.activeCellId);
-    const s = screens.find(sc => sc.label === cell.screenLabel);
-    if (s) {
-      const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
-      const cellCfg = {
-        ...CONFIG,
-        ROOM_OUTER_W: screenSizing.roomW,
-        ROOM_OUTER_H: screenSizing.roomH,
-        ROOM_SLOT_W: screenSizing.slotW,
-        ROOM_SLOT_H: screenSizing.slotH
-      };
-      const rect = cellToScreenRect(s, cell.gx, cell.gy, cellCfg);
-      const ratioX = (rect.slotWidth || rect.width) / (CONFIG.ROOM_OUTER_W || rect.width);
-      const ratioY = (rect.slotHeight || rect.height) / (CONFIG.ROOM_OUTER_H || rect.height);
-      const px = rect.left + player.lx * ratioX;
-      const py = rect.top + player.ly * ratioY;
+    const box = getCellCanvasBox(cell.screenLabel, cell.gx, cell.gy);
+    if (box) {
+      const px = box.rect.left + player.lx * box.ratioX;
+      const py = box.rect.top + player.ly * box.ratioY;
 
       const pdx = offsetX + (px - minX) * scale;
       const pdy = offsetY + (py - minY) * scale;
