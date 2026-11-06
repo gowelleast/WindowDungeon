@@ -437,6 +437,325 @@ class SoundSystem {
       osc.stop(start + note.d + 0.03);
     });
   }
+
+  /**
+   * 7. 황금방 유물 아이템 획득 사운드 (신비로운 반짝임 코드)
+   */
+  playItemPickup() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const notes = [587.33, 880.0, 1174.66, 1760.0]; // D5, A5, D6, A6
+    const now = this.ctx.currentTime;
+
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freq, now + idx * 0.055);
+
+      gain.gain.setValueAtTime(0.001, now + idx * 0.055);
+      gain.gain.linearRampToValueAtTime(0.2, now + idx * 0.055 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.055 + 0.42);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now + idx * 0.055);
+      osc.stop(now + idx * 0.055 + 0.45);
+    });
+  }
+
+  /**
+   * 8. 스테이지 2 깃발 점령 사운드 (플레이어 점령: 경쾌한 상승 화음 / 몬스터 점령: 낮은 경고음)
+   */
+  playFlagCapture(isPlayer = true) {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const freqs = isPlayer ? [523.25, 783.99, 1046.5] : [220.0, 164.81];
+    freqs.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = isPlayer ? 'sine' : 'triangle';
+      const start = now + idx * 0.06;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(isPlayer ? 0.22 : 0.14, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.26);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.28);
+    });
+  }
+
+  /**
+   * 9. 스테이지 3 반사 프리즘 / 발사대 회전 사운드 (맑은 크리스탈 클릭음)
+   */
+  playPrismRotate() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const freqs = [880.0, 1318.5]; // A5 -> E6
+    freqs.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      const start = now + idx * 0.04;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.18, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.18);
+    });
+  }
+
+  /**
+   * 10. 스테이지 3 고대 코어 레이저 연결 및 1.4초 에너지 응축 차징 사운드
+   */
+  playLaserConnect() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+
+    // 1. 코어 연결 직후 크리스탈 공명 화음
+    const notes = [523.25, 659.25, 783.99, 1046.5, 1318.5]; // C5, E5, G5, C6, E6
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+      const start = now + idx * 0.06;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.15, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.5);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.55);
+    });
+
+    // 2. 1.35초간 코어로 빛과 에너지가 빨려 들어가며 고조되는 차징 스윕 업 사운드
+    const sweepOsc = this.ctx.createOscillator();
+    const sweepGain = this.ctx.createGain();
+    sweepOsc.type = 'sine';
+    sweepOsc.frequency.setValueAtTime(220, now);
+    sweepOsc.frequency.exponentialRampToValueAtTime(1480, now + 1.32);
+
+    sweepGain.gain.setValueAtTime(0.01, now);
+    sweepGain.gain.linearRampToValueAtTime(0.22, now + 1.15);
+    sweepGain.gain.exponentialRampToValueAtTime(0.001, now + 1.36);
+
+    sweepOsc.connect(sweepGain);
+    sweepGain.connect(this.masterGain);
+    sweepOsc.start(now);
+    sweepOsc.stop(now + 1.38);
+  }
+
+  /**
+   * 11. 스테이지 4 철창 레버 작동 사운드 (닫힘: 묵직한 철창 낙하음 철컥! / 열림: 경쾌한 해제음)
+   */
+  playGateToggle(isClosed = true) {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const freqs = isClosed ? [320, 145] : [220, 440];
+    freqs.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = isClosed ? 'sawtooth' : 'triangle';
+      const start = now + idx * 0.05;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.22, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.24);
+    });
+  }
+
+  /**
+   * 11-B. 스테이지 4 성검이 닫힌 철창에 튕기거나 완전히 포위되었을 때의 금속 공명음 (캉-!)
+   */
+  playSwordBounce(isTrapped = false) {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const notes = isTrapped ? [880, 1174.66, 1760] : [1046.5, 783.99];
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      const start = now + idx * 0.055;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.32);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.35);
+    });
+  }
+
+  /**
+   * 12. 스테이지 4 전설의 성검 발검 사운드 (금속성 검 울림 챙-! + 영웅적인 각성 코러스)
+   */
+  playSwordDraw() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+
+    // 1. 날카로운 금속 발검 스윕 (Metallic Unsheathe Zing)
+    const zingOsc = this.ctx.createOscillator();
+    const zingGain = this.ctx.createGain();
+    zingOsc.type = 'sawtooth';
+    zingOsc.frequency.setValueAtTime(620, now);
+    zingOsc.frequency.exponentialRampToValueAtTime(2480, now + 0.22);
+    zingGain.gain.setValueAtTime(0.01, now);
+    zingGain.gain.linearRampToValueAtTime(0.22, now + 0.04);
+    zingGain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+    zingOsc.connect(zingGain);
+    zingGain.connect(this.masterGain);
+    zingOsc.start(now);
+    zingOsc.stop(now + 0.45);
+
+    // 2. 성검 각성 영웅 코드 (D Major -> A Major -> D High)
+    const chord = [587.33, 739.99, 880.0, 1174.66, 1479.98];
+    chord.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = idx % 2 === 0 ? 'triangle' : 'sine';
+      const start = now + 0.08 + idx * 0.06;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.18, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.85);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.88);
+    });
+  }
+
+  /**
+   * 13. 스테이지 5 보스 창 폭격 경고 사이렌 사운드 (불길한 저음 공명 알림)
+   */
+  playBossWarning() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    [196.0, 293.66].forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      const start = now + idx * 0.12;
+      osc.frequency.setValueAtTime(freq, start);
+      osc.frequency.linearRampToValueAtTime(freq * 1.18, start + 0.18);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.16, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.24);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + 0.26);
+    });
+  }
+
+  /**
+   * 14. 스테이지 5 보스 창 폭격 폭발 사운드 (묵직한 심연 낙뢰 충격음)
+   */
+  playBossExplosion() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, now);
+    osc.frequency.exponentialRampToValueAtTime(36, now + 0.42);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.28, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.48);
+  }
+
+  /**
+   * 15. 스테이지 5 성검 참격 발사 및 보스 타격 사운드 (황금 검기 스윕 + 타격 쾌감 화음)
+   */
+  playSwordSlash(isFinalHit = false) {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+
+    // 1. 성검 검기 스윕
+    const slashOsc = this.ctx.createOscillator();
+    const slashGain = this.ctx.createGain();
+    slashOsc.type = 'sawtooth';
+    slashOsc.frequency.setValueAtTime(480, now);
+    slashOsc.frequency.exponentialRampToValueAtTime(1960, now + 0.16);
+    slashGain.gain.setValueAtTime(0.01, now);
+    slashGain.gain.linearRampToValueAtTime(0.24, now + 0.02);
+    slashGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+    slashOsc.connect(slashGain);
+    slashGain.connect(this.masterGain);
+    slashOsc.start(now);
+    slashOsc.stop(now + 0.3);
+
+    // 2. 보스 타격 임팩트 코드
+    const notes = isFinalHit
+      ? [523.25, 659.25, 783.99, 1046.5, 1567.98]
+      : [440.0, 659.25, 880.0];
+    notes.forEach((freq, idx) => {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = idx === 0 ? 'triangle' : 'sine';
+      const start = now + 0.06 + idx * 0.045;
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + (isFinalHit ? 0.85 : 0.42));
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(start);
+      osc.stop(start + (isFinalHit ? 0.88 : 0.45));
+    });
+  }
 }
 
 export const sound = new SoundSystem();

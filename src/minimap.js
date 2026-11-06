@@ -89,6 +89,26 @@ export function initMinimap(channel) {
       scheduleMinimapRender();
     }),
 
+    channel.on(MSG.CLOSE_ROOM, (data) => {
+      if (data && data.cellId) {
+        cellMap.delete(data.cellId);
+        updateMetrics();
+        scheduleMinimapRender();
+      }
+    }),
+
+    channel.on(MSG.STAGE_TRANSITION, (data) => {
+      if (data && data.phase === 'complete' && data.activeCellId) {
+        for (const key of Array.from(cellMap.keys())) {
+          if (key !== data.activeCellId) {
+            cellMap.delete(key);
+          }
+        }
+        updateMetrics();
+        scheduleMinimapRender();
+      }
+    }),
+
     channel.on(MSG.TICK, (data) => {
       player = data;
       scheduleMinimapRender();
@@ -108,6 +128,13 @@ export function initMinimap(channel) {
     channel.on(MSG.PIP_STATE, (data) => {
       isRemotePipOpen = !!data.isOpen;
       updateMetrics();
+    }),
+
+    // 새로운 방 팝업이 열릴 때 현재 창이 PiP를 보유하고 있다면 열림 상태를 알려줌
+    channel.on(MSG.HELLO, () => {
+      if (activePipWindow && !activePipWindow.closed) {
+        channel.send(MSG.PIP_STATE, { isOpen: true });
+      }
     }),
   ];
 
@@ -143,6 +170,7 @@ export function initMinimap(channel) {
       intervalId = null;
     }
     if (activePipWindow && !activePipWindow.closed) {
+      try { channel.send(MSG.PIP_STATE, { isOpen: false }); } catch (e) {}
       try { activePipWindow.close(); } catch (e) {}
       activePipWindow = null;
     }
@@ -206,6 +234,7 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
     // 부모 창의 스타일 전달
     copyStylesheetsToPip(targetWindow, pipWin);
 
+    pipWin.document.documentElement.className = 'pip-html';
     pipWin.document.body.className = 'pip-body';
     pipWin.document.body.innerHTML = `
       <div class="pip-wrapper">
@@ -229,8 +258,15 @@ export async function openPipMinimap(targetWindow = window, channel = null) {
 
     pipCanvas = pipWin.document.getElementById('pip-map-canvas');
     if (pipCanvas) {
-      pipCtx = initHiDPIMinimapCanvas(pipCanvas, 350, 205, pipWin);
+      const areaEl = pipWin.document.getElementById('pip-canvas-area');
+      const initW = (areaEl && areaEl.clientWidth > 50) ? areaEl.clientWidth : 350;
+      const initH = (areaEl && areaEl.clientHeight > 50) ? areaEl.clientHeight : 205;
+      pipCtx = initHiDPIMinimapCanvas(pipCanvas, initW, initH, pipWin);
     }
+
+    pipWin.addEventListener('resize', () => {
+      scheduleMinimapRender();
+    });
 
     // 닫기 버튼 이벤트
     const btnClose = pipWin.document.getElementById('btn-pip-close-x');
@@ -413,6 +449,14 @@ function updateMetrics() {
 function drawMinimapTo(targetCtx, targetCanvas, now) {
   if (!targetCtx || screens.length === 0) return;
 
+  if (targetCanvas === pipCanvas && activePipWindow && !activePipWindow.closed) {
+    const cw = targetCanvas.clientWidth;
+    const ch = targetCanvas.clientHeight;
+    if (cw > 50 && ch > 50 && (Math.abs(cw - (targetCanvas.__logicalW || 0)) > 1 || Math.abs(ch - (targetCanvas.__logicalH || 0)) > 1)) {
+      initHiDPIMinimapCanvas(targetCanvas, cw, ch, activePipWindow);
+    }
+  }
+
   const canvasW = targetCanvas.__logicalW || targetCanvas.width;
   const canvasH = targetCanvas.__logicalH || targetCanvas.height;
 
@@ -483,6 +527,194 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     targetCtx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 6, dy + 14);
   }
 
+  const currentStage = (player && player.stage) || 1;
+  const hasMapItem = Boolean(player && player.hasMapItem);
+
+  // 2.5. 고대 지도(🗺️) 소지 시 또는 Stage 2 몬스터 점령 방: 아직 안 가본 미개척 방들도 미니맵에 표시!
+  if (player) {
+    if (hasMapItem && Array.isArray(player.allCells)) {
+      for (const ghost of player.allCells) {
+        if (cellMap.has(ghost.id)) continue;
+        const s = screens.find(sc => sc.label === ghost.screenLabel);
+        if (!s) continue;
+
+        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+        const cellCfg = {
+          ...CONFIG,
+          ROOM_OUTER_W: screenSizing.roomW,
+          ROOM_OUTER_H: screenSizing.roomH,
+          ROOM_SLOT_W: screenSizing.slotW,
+          ROOM_SLOT_H: screenSizing.slotH
+        };
+        const rect = cellToScreenRect(s, ghost.gx, ghost.gy, cellCfg);
+        const dx = offsetX + (rect.left - minX) * scale;
+        const dy = offsetY + (rect.top - minY) * scale;
+        const dw = (rect.slotWidth || rect.width) * scale;
+        const dh = (rect.slotHeight || rect.height) * scale;
+
+        const flagOwner = (currentStage === 2 && player.flagOwners) ? player.flagOwners[ghost.id] : null;
+        const isExitGhost = (currentStage === 1 && player.exitCellId === ghost.id);
+        const isKeyGhost = (currentStage === 1 && !player.hasKey && player.keyCellId === ghost.id);
+        const isGoldenGhost = (currentStage === 1 && !player.goldenItemCollected && player.goldenCellId === ghost.id);
+        const isCoreGhost = (currentStage === 3 && player.laserTargetCellId === ghost.id);
+        const isSwordGhost = (currentStage === 4 && !player.hasLegendarySword && player.flyingSword && player.flyingSword.cellId === ghost.id);
+        const isBossGhost = (currentStage === 5 && player.boss && player.boss.state !== 'barrage' && player.boss.cellId === ghost.id);
+
+        targetCtx.save();
+        if (flagOwner === 'monster' || isBossGhost) {
+          targetCtx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+          targetCtx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+        } else if (isExitGhost) {
+          targetCtx.fillStyle = player.hasKey ? 'rgba(234, 179, 8, 0.2)' : 'rgba(239, 68, 68, 0.18)';
+          targetCtx.strokeStyle = player.hasKey ? '#facc15' : '#f87171';
+        } else if (isKeyGhost || isGoldenGhost || isSwordGhost) {
+          targetCtx.fillStyle = 'rgba(250, 204, 21, 0.2)';
+          targetCtx.strokeStyle = '#facc15';
+        } else if (isCoreGhost) {
+          targetCtx.fillStyle = 'rgba(192, 132, 252, 0.2)';
+          targetCtx.strokeStyle = '#c084fc';
+        } else {
+          targetCtx.fillStyle = 'rgba(148, 163, 184, 0.08)';
+          targetCtx.strokeStyle = 'rgba(148, 163, 184, 0.42)';
+        }
+        targetCtx.fillRect(dx, dy, dw, dh);
+        targetCtx.lineWidth = (isExitGhost || isKeyGhost || isGoldenGhost || isCoreGhost || isSwordGhost || isBossGhost) ? 1.4 : 1;
+        targetCtx.setLineDash([3, 3]);
+        targetCtx.strokeRect(dx, dy, dw, dh);
+        targetCtx.setLineDash([]);
+
+        // 고대 지도로 밝혀진 미개척 방의 출입문(Doors) 표시
+        if (ghost.doors) {
+          const closedList = (currentStage === 4 && player.closedDoorsByCell && player.closedDoorsByCell[ghost.id]) || [];
+          const notchW = dw * 0.22;
+          const notchThick = 2;
+          ghost.doors.forEach(dir => {
+            targetCtx.fillStyle = closedList.includes(dir) ? '#ef4444' : 'rgba(56, 189, 248, 0.6)';
+            if (dir === 'up') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy, notchW, notchThick);
+            if (dir === 'down') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy + dh - notchThick, notchW, notchThick);
+            if (dir === 'left') targetCtx.fillRect(dx, dy + dh / 2 - notchW / 2, notchThick, notchW);
+            if (dir === 'right') targetCtx.fillRect(dx + dw - notchThick, dy + dh / 2 - notchW / 2, notchThick, notchW);
+          });
+        }
+
+        // 고대 지도로 밝혀진 미개척 방의 주요 오브젝트 마킹 (투명도 1.0으로 선명하게 표시!)
+        if (currentStage === 1) {
+          targetCtx.textAlign = 'center';
+          if (isExitGhost) {
+            targetCtx.fillStyle = player.hasKey ? '#fde047' : '#f87171';
+            targetCtx.font = 'bold 13px sans-serif';
+            targetCtx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
+          } else if (isKeyGhost) {
+            targetCtx.fillStyle = '#fde047';
+            targetCtx.font = 'bold 12px sans-serif';
+            targetCtx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
+          } else if (isGoldenGhost) {
+            targetCtx.fillStyle = '#fef08a';
+            targetCtx.font = 'bold 12px sans-serif';
+            targetCtx.fillText('✨', dx + dw / 2, dy + dh / 2 + 4);
+          }
+          targetCtx.textAlign = 'left';
+        } else if (currentStage === 2 && flagOwner === 'monster') {
+          targetCtx.fillStyle = '#fca5a5';
+          targetCtx.font = 'bold 10px sans-serif';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText('🔴', dx + dw / 2, dy + dh / 2 + 3.5);
+          targetCtx.textAlign = 'left';
+        } else if (currentStage === 3 && isCoreGhost) {
+          targetCtx.fillStyle = '#fde047';
+          targetCtx.font = 'bold 12px sans-serif';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText('🗡️', dx + dw / 2, dy + dh / 2 + 4);
+          targetCtx.textAlign = 'left';
+        } else if (currentStage === 4 && isSwordGhost) {
+          targetCtx.fillStyle = '#fde047';
+          targetCtx.font = 'bold 12px sans-serif';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText('🗡️', dx + dw / 2, dy + dh / 2 + 4);
+          targetCtx.textAlign = 'left';
+        } else if (currentStage === 5 && isBossGhost) {
+          targetCtx.font = 'bold 12px sans-serif';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText('👑', dx + dw / 2, dy + dh / 2 + 4);
+          targetCtx.textAlign = 'left';
+        }
+        targetCtx.restore();
+      }
+    } else if (currentStage === 2 && player.flagOwners) {
+      // 지도 아이템이 없더라도 Stage 2에서 몬스터가 점령한 미개척 방은 붉은 점선 영역으로 표시
+      for (const [fCellId, owner] of Object.entries(player.flagOwners)) {
+        if (owner !== 'monster' || cellMap.has(fCellId)) continue;
+        const parsed = parseCellId(fCellId);
+        if (!parsed) continue;
+        const s = screens.find(sc => sc.label === parsed.screenLabel);
+        if (!s) continue;
+
+        const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+        const cellCfg = {
+          ...CONFIG,
+          ROOM_OUTER_W: screenSizing.roomW,
+          ROOM_OUTER_H: screenSizing.roomH,
+          ROOM_SLOT_W: screenSizing.slotW,
+          ROOM_SLOT_H: screenSizing.slotH
+        };
+        const rect = cellToScreenRect(s, parsed.gx, parsed.gy, cellCfg);
+        const dx = offsetX + (rect.left - minX) * scale;
+        const dy = offsetY + (rect.top - minY) * scale;
+        const dw = (rect.slotWidth || rect.width) * scale;
+        const dh = (rect.slotHeight || rect.height) * scale;
+
+        targetCtx.save();
+        targetCtx.fillStyle = 'rgba(239, 68, 68, 0.16)';
+        targetCtx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
+        targetCtx.lineWidth = 1;
+        targetCtx.setLineDash([3, 3]);
+        targetCtx.fillRect(dx, dy, dw, dh);
+        targetCtx.strokeRect(dx, dy, dw, dh);
+        targetCtx.setLineDash([]);
+        targetCtx.fillStyle = '#fca5a5';
+        targetCtx.font = 'bold 10px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('🔴', dx + dw / 2, dy + dh / 2 + 3.5);
+        targetCtx.restore();
+      }
+    } else if (currentStage === 4 && !player.hasLegendarySword && player.flyingSword && player.flyingSword.cellId && !cellMap.has(player.flyingSword.cellId)) {
+      // 지도 아이템이 없더라도 Stage 4에서 떠돌이 성검이 날아간 미개척 방은 황금 점선으로 표시
+      const parsed = parseCellId(player.flyingSword.cellId);
+      if (parsed) {
+        const s = screens.find(sc => sc.label === parsed.screenLabel);
+        if (s) {
+          const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+          const cellCfg = {
+            ...CONFIG,
+            ROOM_OUTER_W: screenSizing.roomW,
+            ROOM_OUTER_H: screenSizing.roomH,
+            ROOM_SLOT_W: screenSizing.slotW,
+            ROOM_SLOT_H: screenSizing.slotH
+          };
+          const rect = cellToScreenRect(s, parsed.gx, parsed.gy, cellCfg);
+          const dx = offsetX + (rect.left - minX) * scale;
+          const dy = offsetY + (rect.top - minY) * scale;
+          const dw = (rect.slotWidth || rect.width) * scale;
+          const dh = (rect.slotHeight || rect.height) * scale;
+
+          targetCtx.save();
+          targetCtx.fillStyle = 'rgba(250, 204, 21, 0.18)';
+          targetCtx.strokeStyle = '#facc15';
+          targetCtx.lineWidth = 1.4;
+          targetCtx.setLineDash([3, 3]);
+          targetCtx.fillRect(dx, dy, dw, dh);
+          targetCtx.strokeRect(dx, dy, dw, dh);
+          targetCtx.setLineDash([]);
+          targetCtx.fillStyle = '#fde047';
+          targetCtx.font = 'bold 12px sans-serif';
+          targetCtx.textAlign = 'center';
+          targetCtx.fillText('🗡️', dx + dw / 2, dy + dh / 2 + 4);
+          targetCtx.restore();
+        }
+      }
+    }
+  }
+
   // 3. 개척된 방(Cell) 및 출입문(Doors) 그리기
   for (const cell of cellMap.values()) {
     const s = screens.find(sc => sc.label === cell.screenLabel);
@@ -502,18 +734,36 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     const dw = (rect.slotWidth || rect.width) * scale;
     const dh = (rect.slotHeight || rect.height) * scale;
 
-    targetCtx.fillStyle = 'rgba(16, 185, 129, 0.14)';
-    targetCtx.fillRect(dx, dy, dw, dh);
+    if (currentStage === 2) {
+      const owner = (player && player.flagOwners && player.flagOwners[cell.id]) || 'neutral';
+      if (owner === 'player') {
+        targetCtx.fillStyle = 'rgba(56, 189, 248, 0.25)';
+        targetCtx.strokeStyle = '#38bdf8';
+      } else if (owner === 'monster') {
+        targetCtx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+        targetCtx.strokeStyle = '#ef4444';
+      } else {
+        targetCtx.fillStyle = 'rgba(148, 163, 184, 0.14)';
+        targetCtx.strokeStyle = '#94a3b8';
+      }
+    } else if (currentStage === 1 && player && player.goldenCellId === cell.id) {
+      targetCtx.fillStyle = 'rgba(250, 204, 21, 0.18)';
+      targetCtx.strokeStyle = '#eab308';
+    } else {
+      targetCtx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+      targetCtx.strokeStyle = '#10b981';
+    }
 
-    targetCtx.strokeStyle = '#10b981';
+    targetCtx.fillRect(dx, dy, dw, dh);
     targetCtx.lineWidth = 1.2;
     targetCtx.strokeRect(dx, dy, dw, dh);
 
     if (cell.doors) {
-      targetCtx.fillStyle = '#38bdf8';
+      const closedList = (currentStage === 4 && player && player.closedDoorsByCell && player.closedDoorsByCell[cell.id]) || [];
       const notchW = dw * 0.22;
-      const notchThick = 2;
+      const notchThick = 2.4;
       cell.doors.forEach(dir => {
+        targetCtx.fillStyle = closedList.includes(dir) ? '#ef4444' : '#38bdf8';
         if (dir === 'up') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy, notchW, notchThick);
         if (dir === 'down') targetCtx.fillRect(dx + dw / 2 - notchW / 2, dy + dh - notchThick, notchW, notchThick);
         if (dir === 'left') targetCtx.fillRect(dx, dy + dh / 2 - notchW / 2, notchThick, notchW);
@@ -521,27 +771,121 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
       });
     }
 
-    // 🚪 발견된 탈출문 아이콘 마킹
-    if (player && player.exitDiscovered && player.exitCellId === cell.id) {
-      targetCtx.fillStyle = player.hasKey ? '#eab308' : '#ef4444';
-      targetCtx.font = 'bold 13px sans-serif';
-      targetCtx.textAlign = 'center';
-      targetCtx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
-      targetCtx.textAlign = 'left';
-    }
+    if (currentStage === 1) {
+      // 🚪 발견된 탈출문 아이콘 마킹
+      if (player && (player.exitDiscovered || hasMapItem) && player.exitCellId === cell.id) {
+        targetCtx.fillStyle = player.hasKey ? '#eab308' : '#ef4444';
+        targetCtx.font = 'bold 13px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText(player.hasKey ? '🚪' : '🔒', dx + dw / 2, dy + dh / 2 + 5);
+        targetCtx.textAlign = 'left';
+      }
 
-    // 🔑 발견된 황금 열쇠 아이콘 마킹
-    if (player && player.keyDiscovered && !player.hasKey && player.keyCellId === cell.id) {
-      targetCtx.fillStyle = '#facc15';
-      targetCtx.font = 'bold 12px sans-serif';
+      // 🔑 발견된 황금 열쇠 아이콘 마킹
+      if (player && (player.keyDiscovered || hasMapItem) && !player.hasKey && player.keyCellId === cell.id) {
+        targetCtx.fillStyle = '#facc15';
+        targetCtx.font = 'bold 12px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
+        targetCtx.textAlign = 'left';
+      }
+
+      // ✨ 황금방 아이콘 마킹 (아직 획득 전일 때)
+      if (player && (player.goldenDiscovered || hasMapItem) && !player.goldenItemCollected && player.goldenCellId === cell.id) {
+        targetCtx.fillStyle = '#fef08a';
+        targetCtx.font = 'bold 12px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('✨', dx + dw / 2, dy + dh / 2 + 4);
+        targetCtx.textAlign = 'left';
+      }
+    } else if (currentStage === 2) {
+      const owner = (player && player.flagOwners && player.flagOwners[cell.id]) || 'neutral';
+      const flagEmoji = owner === 'player' ? '💠' : owner === 'monster' ? '🔴' : '🪨';
+      targetCtx.fillStyle = '#ffffff';
+      targetCtx.font = 'bold 11px sans-serif';
       targetCtx.textAlign = 'center';
-      targetCtx.fillText('🔑', dx + dw / 2, dy + dh / 2 + 4);
+      targetCtx.fillText(flagEmoji, dx + dw / 2, dy + dh / 2 + 4);
       targetCtx.textAlign = 'left';
+    } else if (currentStage === 3 && player) {
+      const seg = Array.isArray(player.laserSegments)
+        ? player.laserSegments.find(st => st.cellId === cell.id)
+        : null;
+
+      // 미니맵에서도 현재 방을 관통하는 레이저 광선 표시
+      if (seg) {
+        const cx = dx + dw / 2;
+        const cy = dy + dh / 2;
+        const getEdge = (dir) => {
+          if (dir === 'up') return { x: cx, y: dy };
+          if (dir === 'down') return { x: cx, y: dy + dh };
+          if (dir === 'left') return { x: dx, y: cy };
+          return { x: dx + dw, y: cy };
+        };
+        targetCtx.save();
+        targetCtx.strokeStyle = player.laserConnected ? '#facc15' : '#38bdf8';
+        targetCtx.lineWidth = 2;
+        if (seg.inDir) {
+          const pIn = getEdge(seg.inDir);
+          targetCtx.beginPath();
+          targetCtx.moveTo(pIn.x, pIn.y);
+          targetCtx.lineTo(cx, cy);
+          targetCtx.stroke();
+        }
+        if (seg.outDir && seg.outDir !== seg.inDir) {
+          const pOut = getEdge(seg.outDir);
+          targetCtx.beginPath();
+          targetCtx.moveTo(cx, cy);
+          targetCtx.lineTo(pOut.x, pOut.y);
+          targetCtx.stroke();
+        }
+        targetCtx.restore();
+      }
+
+      const isSource = player.laserSourceCellId === cell.id;
+      const isTarget = player.laserTargetCellId === cell.id;
+      const icon = isTarget
+        ? (player.laserConnected ? '✨' : '🗡️')
+        : isSource
+        ? '⚡'
+        : '💎';
+      targetCtx.fillStyle = '#ffffff';
+      targetCtx.font = 'bold 11px sans-serif';
+      targetCtx.textAlign = 'center';
+      targetCtx.fillText(icon, dx + dw / 2, dy + dh / 2 + 4);
+      targetCtx.textAlign = 'left';
+    } else if (currentStage === 4 && player) {
+      if (!player.hasLegendarySword && player.flyingSword && player.flyingSword.cellId === cell.id) {
+        const isStunned = player.flyingSword.state === 'groggy' || player.flyingSword.state === 'trapped';
+        targetCtx.fillStyle = '#fde047';
+        targetCtx.font = 'bold 12px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText(isStunned ? '💫' : '🗡️', dx + dw / 2, dy + dh / 2 + 4);
+        targetCtx.textAlign = 'left';
+      }
+    } else if (currentStage === 5 && player) {
+      const b = player.boss;
+      if (b && b.state === 'barrage' && b.barrageCellId === cell.id) {
+        targetCtx.save();
+        targetCtx.fillStyle = 'rgba(244, 63, 94, 0.28)';
+        targetCtx.strokeStyle = '#f43f5e';
+        targetCtx.lineWidth = 2;
+        targetCtx.fillRect(dx, dy, dw, dh);
+        targetCtx.strokeRect(dx, dy, dw, dh);
+        targetCtx.font = 'bold 11px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('🔥', dx + dw / 2, dy + dh / 2 + 4);
+        targetCtx.restore();
+      } else if (b && b.state !== 'barrage' && b.cellId === cell.id && (hasMapItem || player.activeCellId === cell.id)) {
+        targetCtx.font = 'bold 12px sans-serif';
+        targetCtx.textAlign = 'center';
+        targetCtx.fillText('👑', dx + dw / 2, dy + dh / 2 + 4);
+        targetCtx.textAlign = 'left';
+      }
     }
   }
 
-  // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 (label:gx,gy 정확히 파싱)
-  if (player && player.monster && player.monster.cellId) {
+  // 4. 👾 백그라운드 순찰 몬스터 레이더 핀포인트 (기본은 비표시, '고대 지도 🗺️' 획득 시에만 실시간 노출!)
+  if (player && hasMapItem && player.monster && player.monster.cellId) {
     const m = player.monster;
     const parsedMonster = parseCellId(m.cellId);
     if (parsedMonster) {
@@ -637,6 +981,20 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   targetCtx.save();
   targetCtx.font = '10px "JetBrains Mono", monospace';
   targetCtx.fillStyle = '#94a3b8';
-  targetCtx.fillText('🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  👾 몬스터', 10, canvasH - 8);
+  if (currentStage === 5 && player) {
+    const bHp = (player.boss && player.boss.hp) ?? 3;
+    targetCtx.fillText(`STAGE 5  |  👑 보스(❤️x${bHp})  |  🔥 탄막 회피  |  ⚔️ [Space] 공격`, 10, canvasH - 8);
+  } else if (currentStage === 4 && player) {
+    targetCtx.fillText('STAGE 4  |  🗡️ 성검  |  🔒 문 앞 [Space] 문 여닫기', 10, canvasH - 8);
+  } else if (currentStage === 3) {
+    targetCtx.fillText('STAGE 3  |  ⚡ 발사대  |  💎 오팔(Space 회전)  |  🗡️ 성검', 10, canvasH - 8);
+  } else if (currentStage === 2 && player) {
+    const pScore = player.playerScore ?? 0;
+    const mScore = player.monsterScore ?? 0;
+    const tLeft = player.isOvertime ? 'OVERTIME' : `${player.stage2TimeLeft ?? 0}s`;
+    targetCtx.fillText(`STAGE 2  |  💠 내 룬스톤: ${pScore}  |  🔴 적 룬스톤: ${mScore}  |  ⏱️ ${tLeft}`, 10, canvasH - 8);
+  } else {
+    targetCtx.fillText('STAGE 1  |  🟢 나  |  🚪 탈출문  |  🔑 열쇠  |  ✨ 황금방  |  👾 몬스터', 10, canvasH - 8);
+  }
   targetCtx.restore();
 }

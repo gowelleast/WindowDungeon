@@ -43,27 +43,38 @@
       </button>
     </div>
 
-    <!-- 2. 데스크톱 게임 시작 화면 -->
-    <div id="start-screen">
-      <div class="start-card">
-        <h2 class="start-card-title">새 던전 세션 시작</h2>
-        <p class="start-card-desc">
-          각 브라우저 창이 던전의 방이 됩니다.<br>
-          <strong>황금 열쇠🔑</strong>를 찾아 <strong>굳게 닫힌 탈출문🚪</strong>을 열고 탈출하세요!
-        </p>
+    <!-- 2. 데스크톱 게임 시작 화면 (중앙 start-card 주변으로 인접 방 카드가 생성·이동·소멸하는 멀티 윈도우 연출) -->
+    <div id="start-screen" class="start-screen-viewport">
+      <div class="start-card-anchor">
+        <!-- 인접 방(Phantom Room Cards)이 중앙 start-card와 동일한 크기로 상/하/좌/우에 생성되었다가 다음 방으로 넘어가는 레이어 -->
+        <div id="phantom-rooms-layer" class="phantom-rooms-layer" aria-hidden="true"></div>
 
-        <div class="guide-box">
-          <div class="guide-box-title">
-            <span>💡</span> <span>권한 및 조작 안내</span>
+        <div class="start-card" id="main-start-card">
+          <!-- 중앙 방의 4방향 출입문 문턱 장식 -->
+          <span class="card-door-indicator door-up" id="card-door-up"></span>
+          <span class="card-door-indicator door-right" id="card-door-right"></span>
+          <span class="card-door-indicator door-down" id="card-door-down"></span>
+          <span class="card-door-indicator door-left" id="card-door-left"></span>
+
+          <h2 class="start-card-title">새 던전 세션 시작</h2>
+          <p class="start-card-desc">
+            각 브라우저 창이 던전의 방이 됩니다.<br>
+            <strong>열쇠🔑</strong>를 찾아 <strong>탈출문🚪</strong>을 열고 다음 스테이지로 나아가세요!
+          </p>
+
+          <div class="guide-box">
+            <div class="guide-box-title">
+              <span>💡</span> <span>권한 및 조작 안내</span>
+            </div>
+            • 팝업 차단 해제 및 <strong>창 관리</strong> 권한이 필요합니다.<br>
+            • <strong>방향키(또는 WASD)</strong>로 이동하며, 문에 닿으면 다음 방 창이 자동으로 열립니다.<br>
+            • 게임 중 언제든 <strong>[M]</strong> 키를 누르면 <strong>미니맵</strong>이 플로팅으로 열립니다.
           </div>
-          • 팝업 차단 해제 및 <strong>창 관리</strong> 권한이 필요합니다.<br>
-          • <strong>방향키(또는 WASD)</strong>로 이동하며, 문에 닿으면 다음 방 창이 자동으로 열립니다.<br>
-          • 게임 중 언제든 <strong>[M]</strong> 키를 누르면 <strong>미니맵</strong>이 플로팅으로 열립니다.
-        </div>
 
-        <button id="btn-start" class="btn-primary">
-          <span>⚔️ 게임 시작</span>
-        </button>
+          <button id="btn-start" class="btn-primary">
+            <span>⚔️ 게임 시작</span>
+          </button>
+        </div>
       </div>
     </div>
 

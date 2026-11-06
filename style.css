@@ -20,20 +20,43 @@
   box-sizing: border-box;
 }
 
+html,
 body {
   margin: 0;
   padding: 0;
   font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   background: var(--bg-dark);
   color: var(--text-main);
-  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
+body:not(.room-body):not(.pip-body) {
+  min-width: 760px;
+  min-height: 640px;
+  overflow-x: hidden;
+}
+
+body:not(.room-body):not(.pip-body):has(#start-screen:not([style*="display: none"])) {
+  height: 100vh;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  body:not(.room-body):not(.pip-body) {
+    min-width: 320px;
+    overflow-y: auto;
+  }
+}
+
 /* 방(Room) 전용 캔버스 컨테이너 */
+html:has(body.room-body),
 body.room-body {
   margin: 0;
   padding: 0;
+  min-width: 0;
+  min-height: 0;
+  width: 100vw;
+  height: 100vh;
   overflow: hidden;
   background: #090a0d;
 }
@@ -94,20 +117,280 @@ canvas#game-canvas {
   100% { background-position: -150% center; }
 }
 
-/* 시작 카드 인터랙티브 스포트라이트 */
+/* 시작 화면 멀티 윈도우 방 연출 앵커 및 시작 카드 인터랙티브 스포트라이트 */
+.start-screen-viewport {
+  position: relative;
+  width: 100%;
+  padding: 12px 0 36px 0;
+}
+
+.start-card-anchor {
+  position: relative;
+  width: 100%;
+  max-width: 540px;
+  margin: 28px auto 0 auto;
+}
+
 .start-card {
   position: relative;
   max-width: 540px;
-  margin: 48px auto 0 auto;
-  background: rgba(17, 24, 39, 0.88);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 0 auto;
+  background: rgba(17, 24, 39, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 40px 32px;
-  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.7);
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(16px);
   text-align: center;
   overflow: hidden;
+  z-index: 5;
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* 중앙 start-card의 4방향 던전 출입문 문턱 표시 */
+.card-door-indicator {
+  position: absolute;
+  background: rgba(56, 189, 248, 0.22);
+  border-radius: 999px;
+  pointer-events: none;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 4;
+}
+
+.card-door-indicator.door-up {
+  top: 0;
+  left: 50%;
+  width: 76px;
+  height: 3.5px;
+  transform: translateX(-50%);
+}
+
+.card-door-indicator.door-down {
+  bottom: 0;
+  left: 50%;
+  width: 76px;
+  height: 3.5px;
+  transform: translateX(-50%);
+}
+
+.card-door-indicator.door-left {
+  left: 0;
+  top: 50%;
+  width: 3.5px;
+  height: 76px;
+  transform: translateY(-50%);
+}
+
+.card-door-indicator.door-right {
+  right: 0;
+  top: 50%;
+  width: 3.5px;
+  height: 76px;
+  transform: translateY(-50%);
+}
+
+.card-door-indicator.active {
+  background: #38bdf8;
+  box-shadow: 0 0 16px #38bdf8, 0 0 28px rgba(56, 189, 248, 0.8);
+}
+
+/* 중앙 start-card 옆에 동일한 크기로 생성되었다가 다음 방으로 넘어가는 인접 방(Phantom Room) 레이어 */
+.phantom-rooms-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.phantom-room-card {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  background: rgba(15, 20, 30, 0.78);
+  border: 1.5px solid rgba(56, 189, 248, 0.42);
+  box-shadow: 0 22px 44px -12px rgba(0, 0, 0, 0.72), 0 0 24px rgba(56, 189, 248, 0.14);
+  backdrop-filter: blur(10px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.48s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.35s ease,
+              box-shadow 0.35s ease;
+}
+
+.phantom-room-card.dir-right {
+  left: calc(100% + 22px);
+  top: 0;
+  transform-origin: left center;
+}
+
+.phantom-room-card.dir-left {
+  right: calc(100% + 22px);
+  top: 0;
+  transform-origin: right center;
+}
+
+.phantom-room-card.dir-up {
+  left: 0;
+  bottom: calc(100% + 22px);
+  transform-origin: center bottom;
+}
+
+.phantom-room-card.dir-down {
+  left: 0;
+  top: calc(100% + 22px);
+  transform-origin: center top;
+}
+
+.phantom-room-card.is-visible {
+  opacity: 0.88;
+  transform: translate(0, 0) scale(1);
+}
+
+/* 다음 방으로 넘어가는 것처럼 미끄러지며 사라지는 퇴장 연출 */
+.phantom-room-card.depart-right {
+  opacity: 0;
+  transform: translateX(46px) scale(0.95);
+  border-color: rgba(52, 211, 153, 0.55);
+}
+
+.phantom-room-card.depart-left {
+  opacity: 0;
+  transform: translateX(-46px) scale(0.95);
+  border-color: rgba(52, 211, 153, 0.55);
+}
+
+.phantom-room-card.depart-up {
+  opacity: 0;
+  transform: translateY(-42px) scale(0.95);
+  border-color: rgba(52, 211, 153, 0.55);
+}
+
+.phantom-room-card.depart-down {
+  opacity: 0;
+  transform: translateY(42px) scale(0.95);
+  border-color: rgba(52, 211, 153, 0.55);
+}
+
+.phantom-win-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: rgba(11, 15, 23, 0.9);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: #7dd3fc;
+}
+
+.phantom-win-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.phantom-win-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.35);
+}
+
+.phantom-win-dots span:nth-child(1) { background: rgba(248, 113, 113, 0.65); }
+.phantom-win-dots span:nth-child(2) { background: rgba(250, 204, 21, 0.65); }
+.phantom-win-dots span:nth-child(3) { background: rgba(52, 211, 153, 0.65); }
+
+.phantom-room-body {
+  position: relative;
+  flex: 1;
+  margin: 14px;
+  border-radius: 12px;
+  border: 2px solid #293242;
+  background-color: #131720;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.1), rgba(4, 6, 9, 0.72));
+  background-size: 36px 36px, 36px 36px, 100% 100%;
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.phantom-room-door {
+  position: absolute;
+  background: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+  border-radius: 999px;
+  transition: all 0.28s ease;
+}
+
+.phantom-room-door.p-door-up { top: -1px; left: 50%; width: 64px; height: 4px; transform: translateX(-50%); }
+.phantom-room-door.p-door-down { bottom: -1px; left: 50%; width: 64px; height: 4px; transform: translateX(-50%); }
+.phantom-room-door.p-door-left { left: -1px; top: 50%; width: 4px; height: 64px; transform: translateY(-50%); }
+.phantom-room-door.p-door-right { right: -1px; top: 50%; width: 4px; height: 64px; transform: translateY(-50%); }
+
+.phantom-room-door.is-exit-active {
+  background: #34d399;
+  box-shadow: 0 0 18px #10b981, 0 0 30px #34d399;
+}
+
+.phantom-room-center-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0.85;
+  transform: translateY(-2px);
+}
+
+.phantom-room-icon {
+  font-size: 30px;
+  filter: drop-shadow(0 0 12px rgba(250, 204, 21, 0.45));
+}
+
+.phantom-room-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cbd5e1;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+/* 인접 방 내부를 가로질러 다음 방 문으로 이동하는 꼬마 모험가 아바타 */
+.phantom-adventurer {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #6ee7b7, #10b981 65%, #047857);
+  border: 2px solid #ecfdf5;
+  box-shadow: 0 0 14px #10b981, 0 0 28px rgba(250, 204, 21, 0.45);
+  transform: translate(-50%, -50%);
+  transition: left 1.15s cubic-bezier(0.22, 1, 0.36, 1),
+              top 1.15s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 3;
+}
+
+.phantom-adventurer::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  bottom: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fef08a;
+  box-shadow: 0 0 8px #f59e0b;
 }
 
 /* 마우스 주변 은은한 표면 조명 */
@@ -617,9 +900,13 @@ canvas#game-canvas {
 }
 
 /* Document PiP 윈도우 내부 스타일 */
+html.pip-html,
+html:has(body.pip-body),
 body.pip-body {
   margin: 0;
   padding: 0;
+  min-width: 0;
+  min-height: 0;
   background: #080a0f;
   color: #f1f5f9;
   font-family: 'Outfit', system-ui, -apple-system, sans-serif;
@@ -639,6 +926,7 @@ body.pip-body {
 }
 
 .pip-topbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -673,6 +961,7 @@ body.pip-body {
 
 .pip-canvas-area {
   flex: 1;
+  min-height: 0;
   position: relative;
   width: 100%;
   height: 100%;
@@ -687,6 +976,7 @@ body.pip-body {
 }
 
 .pip-bottom-metrics {
+  flex-shrink: 0;
   padding: 3px 10px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;

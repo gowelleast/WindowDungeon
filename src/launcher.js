@@ -76,6 +76,112 @@ document.querySelectorAll('.start-card').forEach((card) => {
   });
 });
 
+// 시작 화면('새 던전 세션 시작') 주변에 방이 생성되었다가 다음 방으로 넘어가는 앰비언트 연출
+const phantomLayer = document.getElementById('phantom-rooms-layer');
+const startScreenEl = document.getElementById('start-screen');
+const PHANTOM_THEMES = [
+  { icon: '🔑', label: 'STAGE 1 · 열쇠의 방' },
+  { icon: '💠', label: 'STAGE 2 · 룬스톤 점령' },
+  { icon: '💎', label: 'STAGE 3 · 룬스톤 오팔' },
+  { icon: '🗡️', label: 'STAGE 3 · 성검의 방' },
+  { icon: '✨', label: 'STAGE 4 · 성검 추적' },
+  { icon: '👑', label: 'STAGE 5 · 보스전' }
+];
+let phantomThemeIdx = 0;
+let lastSpawnDir = 'left';
+
+function getDoorCoordsPercent(dir) {
+  if (dir === 'left') return { left: '10%', top: '50%' };
+  if (dir === 'right') return { left: '90%', top: '50%' };
+  if (dir === 'up') return { left: '50%', top: '14%' };
+  return { left: '50%', top: '86%' };
+}
+
+function spawnPhantomRoomCycle() {
+  if (isMobileDevice || !phantomLayer || !startScreenEl) return;
+  if (startScreenEl.style.display === 'none') return;
+
+  // 좌/우 인접 방을 번갈아 생성하여 중앙 start-card 양옆으로 방이 이어지는 느낌 연출
+  const spawnDir = lastSpawnDir === 'right' ? 'left' : 'right';
+  lastSpawnDir = spawnDir;
+
+  const entryDoor = spawnDir === 'right' ? 'left' : 'right';
+  const possibleExits = [spawnDir, 'up', 'down'];
+  const exitDoor = possibleExits[Math.floor(Math.random() * possibleExits.length)];
+  const theme = PHANTOM_THEMES[phantomThemeIdx % PHANTOM_THEMES.length];
+  phantomThemeIdx++;
+
+  const roomHash = Math.random().toString(16).slice(2, 6);
+  const mainDoorEl = document.getElementById(`card-door-${spawnDir}`);
+  if (mainDoorEl) {
+    mainDoorEl.classList.add('active');
+  }
+
+  const card = document.createElement('div');
+  card.className = `phantom-room-card dir-${spawnDir}`;
+
+  const startPos = getDoorCoordsPercent(entryDoor);
+  const endPos = getDoorCoordsPercent(exitDoor);
+
+  card.innerHTML = `
+    <div class="phantom-win-header">
+      <div class="phantom-win-dots"><span></span><span></span><span></span></div>
+      <span>Room: room-${roomHash}</span>
+      <span style="opacity:0.55;">30Hz</span>
+    </div>
+    <div class="phantom-room-body">
+      <span class="phantom-room-door p-door-up"></span>
+      <span class="phantom-room-door p-door-right"></span>
+      <span class="phantom-room-door p-door-down"></span>
+      <span class="phantom-room-door p-door-left"></span>
+      <div class="phantom-room-center-badge">
+        <div class="phantom-room-icon">${theme.icon}</div>
+        <div class="phantom-room-label">${theme.label}</div>
+      </div>
+      <div class="phantom-adventurer" style="left: ${startPos.left}; top: ${startPos.top};"></div>
+    </div>
+  `;
+
+  phantomLayer.appendChild(card);
+
+  const advEl = card.querySelector('.phantom-adventurer');
+  const exitDoorEl = card.querySelector(`.p-door-${exitDoor}`);
+
+  // 1. 인접 방 카드 팝업 등장 및 모험가 이동 시작
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      card.classList.add('is-visible');
+      if (advEl) {
+        advEl.style.left = endPos.left;
+        advEl.style.top = endPos.top;
+      }
+    });
+  });
+
+  setTimeout(() => {
+    if (mainDoorEl) mainDoorEl.classList.remove('active');
+  }, 550);
+
+  // 2. 모험가가 다음 문에 도달하면 출구 문이 빛나며 다음 방으로 넘어가는 것처럼 퇴장
+  setTimeout(() => {
+    if (exitDoorEl) exitDoorEl.classList.add('is-exit-active');
+  }, 1050);
+
+  setTimeout(() => {
+    card.classList.remove('is-visible');
+    card.classList.add(`depart-${exitDoor}`);
+  }, 1350);
+
+  setTimeout(() => {
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }, 1900);
+}
+
+if (!isMobileDevice) {
+  setTimeout(spawnPhantomRoomCycle, 600);
+  setInterval(spawnPhantomRoomCycle, 2400);
+}
+
 // 런처 사운드 토글 버튼 바인딩 및 전역 동기화
 const btnLauncherMute = document.getElementById('btn-launcher-mute');
 function updateMuteButtonUI(isMuted) {
