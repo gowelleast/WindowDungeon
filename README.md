@@ -77,7 +77,7 @@
 Lobby Window (Launcher)
  ├─ Web Worker (Master Core) ── 독립 30Hz 루프: 월드 상태, 물리 연산, AI 및 스테이지 컨트롤러
  ├─ 실시간 대시보드 ─────────── 모니터 그리드 매핑, 인접 방 프리뷰 연출 & 메시지 RTT 지표
- └─ 시스템 인스펙터 ─────────── BroadcastChannel IPC 패킷 트래픽 모니터링
+ └─ 보유 아이템 인벤토리 ────── 획득한 아이템 및 패시브/장착 효과 실시간 동기화
        │
        │ BroadcastChannel ("dungeon-v1")
        │
@@ -108,7 +108,7 @@ window-dungeon/
     ├── render.js             # 렌더링 모듈 배럴(Barrel) 익스포트
     ├── render/               # Canvas 2D 도메인별(방, 엔티티, HUD) 및 스테이지별 렌더러
     ├── sound.js              # Web Audio API 절차적 사운드 합성
-    ├── inspector.js          # 시스템 패킷 로그 인스펙터
+    ├── inspector.js          # 보유 아이템(인벤토리) 대시보드 패널
     ├── minimap.js            # Document PiP 기반 전술 미니맵
     └── confetti.js           # 다중 창 기준 파티클 시뮬레이션
 ```

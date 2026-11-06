@@ -363,7 +363,7 @@ export function drawStage4ForgeAndSword(ctx, stage4State) {
     ctx.fill();
     ctx.restore();
 
-    // (3-D) 성검 상태 텍스트 및 포획 프롬프트 (포획 전일 때만 표시)
+    // (3-D) 성검 상태 텍스트 (포획 전일 때만 표시, 근접 시 자동 포획되므로 별도 SPACE 배지는 생략)
     if (!hasLegendarySword) {
       ctx.save();
       ctx.font = 'bold 11px "Outfit", sans-serif';
@@ -376,25 +376,6 @@ export function drawStage4ForgeAndSword(ctx, stage4State) {
       } else {
         ctx.fillStyle = '#bae6fd';
         ctx.fillText('🗡️ 성검', sx, labelY);
-      }
-
-      if (isStunned && isNearTrappedSword) {
-        const floatOffset = Math.sin(now / 130) * 2.5;
-        const btnW = 132;
-        const btnH = 26;
-        const btnX = Math.max(8, Math.min(W - btnW - 8, sx - btnW / 2));
-        const btnY = Math.max(28, sy - 50 + floatOffset);
-
-        drawFloatingActionBadge(ctx, '🗡️ [SPACE] 잡기', btnX + btnW / 2, btnY, {
-          width: btnW,
-          height: btnH,
-          bgColor: 'rgba(15, 23, 42, 0.95)',
-          strokeColor: '#facc15',
-          lineWidth: 2,
-          shadowColor: '#eab308',
-          shadowBlur: 12,
-          textColor: '#fef08a'
-        });
       }
       ctx.restore();
     }

@@ -1,99 +1,155 @@
 import { MSG } from './protocol.js';
 
-let logContainer;
-const MAX_LOG_ENTRIES = 150;
+const TOTAL_SLOTS = 3;
 
-/** 인스펙터를 초기화하고, 정리(dispose) 함수를 반환합니다. */
+const ITEM_DEFINITIONS = {
+  key: {
+    id: 'key',
+    icon: '🔑',
+    name: '황금 열쇠',
+    theme: 'item-gold',
+    getBadge: (stage) => (stage > 1 ? '사용 완료' : '보유 중'),
+    desc: '잠긴 탈출 포탈의 봉인을 해제하여 다음 스테이지로 나아갈 수 있게 해줍니다.'
+  },
+  map: {
+    id: 'map',
+    icon: '🗺️',
+    name: '탐험가의 지도',
+    theme: 'item-cyan',
+    getBadge: () => '패시브 적용 중',
+    desc: '미니맵에 아직 개척하지 않은 전체 방 구조와 주요 목표의 위치를 밝혀줍니다.'
+  },
+  boots: {
+    id: 'boots',
+    icon: '👢',
+    name: '신속의 신발',
+    theme: 'item-emerald',
+    getBadge: () => '이동속도 +30%',
+    desc: '발걸음이 가벼워져 캐릭터의 이동 속도가 30% 증가합니다.'
+  },
+  sword: {
+    id: 'sword',
+    icon: '🗡️',
+    name: '전설의 성검',
+    theme: 'item-mythic',
+    getBadge: () => '장착 중 · [SPACE] 공격',
+    desc: '성소의 빛을 흡수해 각성한 성검입니다. 보스에게 다가가 [Space]로 참격을 가합니다.'
+  }
+};
+
+/**
+ * 보유 아이템(인벤토리) 패널을 초기화하고, 정리(dispose) 함수를 반환합니다.
+ */
 export function initInspector(channel) {
-  logContainer = document.getElementById('inspector-log');
-  if (!logContainer) return () => {};
+  const container = document.getElementById('inventory-list');
+  const subtitleEl = document.getElementById('inventory-subtitle');
+  if (!container) return () => {};
 
-  // 시스템 기본 정보를 출력
-  appendLog('SYS', `Inspector listening on channel: <strong>${channel.bc.name}</strong>`, '#34d399');
-  
-  // 브로드캐스트 채널로 수신되는 모든 통신을 로그로 출력
-  return channel.onAny((data) => {
-    // 너무 빈번한 PING/PONG/TICK은 제외
-    if (data.type !== MSG.TICK && data.type !== MSG.PING && data.type !== MSG.PONG) {
-      logPacket(data);
+  const state = {
+    stage: 1,
+    hasKey: false,
+    hasMapItem: false,
+    hasBootsItem: false,
+    hasLegendarySword: false
+  };
+
+  let lastStateKey = '';
+  const knownItemIds = new Set();
+
+  function renderInventory() {
+    const stateKey = `${state.stage}|${state.hasKey}|${state.hasMapItem}|${state.hasBootsItem}|${state.hasLegendarySword}`;
+    if (stateKey === lastStateKey) return;
+    lastStateKey = stateKey;
+
+    const acquired = [];
+    if (state.hasKey) acquired.push(ITEM_DEFINITIONS.key);
+    if (state.hasMapItem) acquired.push(ITEM_DEFINITIONS.map);
+    if (state.hasBootsItem) acquired.push(ITEM_DEFINITIONS.boots);
+    if (state.hasLegendarySword) acquired.push(ITEM_DEFINITIONS.sword);
+
+    if (subtitleEl) {
+      subtitleEl.textContent = `${acquired.length}개 보유`;
     }
-  });
-}
 
-function logPacket(data) {
-  let color = '#94a3b8';
-  let formatted = '';
+    const slotCount = Math.max(TOTAL_SLOTS, acquired.length);
+    const cardsHtml = [];
 
-  switch (data.type) {
-    case MSG.HELLO:
-      color = '#38bdf8'; // Sky Blue
-      formatted = `<span style="color:#7dd3fc">[HELLO]</span> Room <code class="log-code">${data.winId}</code> is knocking...`;
-      break;
-    case MSG.ASSIGN:
-      color = '#f472b6'; // Pink
-      formatted = `<span style="color:#f472b6">[ASSIGN]</span> Cell <code class="log-code">${data.id}</code> allocated for <strong>${data.winId}</strong>`;
-      break;
-    case MSG.DOOR_PROMPT:
-      color = '#fbbf24'; // Amber
-      if (data.clear) {
-        formatted = `<span style="color:#64748b">[PROMPT_HIDE]</span> Player stepped away from door.`;
+    for (let i = 0; i < slotCount; i++) {
+      const item = acquired[i];
+      if (item) {
+        const isNewlyAcquired = !knownItemIds.has(item.id);
+        knownItemIds.add(item.id);
+        const badgeText = item.getBadge(state.stage);
+        const isUsedKey = item.id === 'key' && state.stage > 1;
+
+        cardsHtml.push(`
+          <div class="inventory-slot is-filled ${item.theme}${isNewlyAcquired ? ' is-new' : ''}${isUsedKey ? ' is-used' : ''}">
+            <div class="inventory-icon-box">
+              <span class="inventory-icon">${item.icon}</span>
+            </div>
+            <div class="inventory-info">
+              <div class="inventory-title-row">
+                <span class="inventory-name">${item.name}</span>
+                <span class="inventory-badge">${badgeText}</span>
+              </div>
+              <p class="inventory-desc">${item.desc}</p>
+            </div>
+          </div>
+        `);
       } else {
-        formatted = `<span style="color:#fbbf24">[DOOR_PROMPT]</span> Dir: <strong>${data.dir.toUpperCase()}</strong> → Target: <code class="log-code">${data.targetWinId}</code> (new: ${data.willOpenNew})`;
+        cardsHtml.push(`
+          <div class="inventory-slot is-empty">
+            <div class="inventory-icon-box">
+              <span class="inventory-icon">❔</span>
+            </div>
+            <div class="inventory-info">
+              <div class="inventory-title-row">
+                <span class="inventory-name">빈 아이템 슬롯</span>
+                <span class="inventory-badge">미획득</span>
+              </div>
+              <p class="inventory-desc">던전의 방을 탐색하여 아이템을 획득하면 이곳에 표시됩니다.</p>
+            </div>
+          </div>
+        `);
       }
-      break;
-    case MSG.DOOR_CONFIRM:
-      color = '#34d399'; // Emerald
-      formatted = `<span style="color:#34d399">[DOOR_CONFIRM]</span> [SPACE] Triggered in <strong>${data.winId}</strong> (Dir: ${data.dir})`;
-      break;
-    case MSG.KEY_COLLECTED:
-      color = '#fde047'; // Yellow
-      formatted = `<span style="color:#fde047">[KEY_COLLECTED]</span> 🔑 Key acquired in <code class="log-code">${data.activeCellId}</code>`;
-      break;
-    case MSG.DOOR_LOCKED:
-      color = '#f87171'; // Red
-      formatted = `<span style="color:#f87171">[DOOR_LOCKED]</span> 🔒 Exit portal locked in <code class="log-code">${data.activeCellId}</code>`;
-      break;
-    case MSG.MONSTER_HIT:
-      color = '#ef4444'; // Red
-      formatted = `<span style="color:#ef4444">[MONSTER_HIT]</span> 👾 Player hit in <code class="log-code">${data.activeCellId}</code>`;
-      break;
-    case MSG.VICTORY:
-      color = '#facc15'; // Gold
-      formatted = `<span style="color:#facc15; font-weight: bold;">[VICTORY] 🏆 Dungeon cleared in ${data.winnerWinId}!</span>`;
-      break;
-    case MSG.SCREENS_UPDATE:
-      color = '#c084fc'; // Purple
-      formatted = `<span style="color:#c084fc">[SCREENS_UPDATE]</span> Layout refreshed for <strong>${data.screens ? data.screens.length : 0}</strong> display(s).`;
-      break;
-    case MSG.INPUT:
-      color = '#64748b'; // Slate
-      formatted = `<span style="color:#94a3b8">[INPUT]</span> Keys: [${data.keys.join(', ')}]`;
-      break;
-    default:
-      const { type, from, t, ...payload } = data;
-      formatted = `[${data.type}] ` + JSON.stringify(payload);
+    }
+
+    container.innerHTML = cardsHtml.join('');
   }
 
-  appendLog('NET', formatted, color);
-}
+  // 초기 빈 슬롯 렌더링
+  renderInventory();
 
-function appendLog(source, htmlMessage, color) {
-  if (!logContainer) return;
-  
-  const now = new Date();
-  const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
-  
-  const div = document.createElement('div');
-  div.className = 'log-entry';
-  div.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-source" style="color: ${color};">${source}</span> ${htmlMessage}`;
-  
-  logContainer.appendChild(div);
+  const offTick = channel.on(MSG.TICK, (data) => {
+    if (!data) return;
+    if (data.stage !== undefined) state.stage = data.stage;
+    if (data.hasKey !== undefined) state.hasKey = Boolean(data.hasKey);
+    if (data.hasMapItem !== undefined) state.hasMapItem = Boolean(data.hasMapItem);
+    if (data.hasBootsItem !== undefined) state.hasBootsItem = Boolean(data.hasBootsItem);
+    if (data.hasLegendarySword !== undefined) state.hasLegendarySword = Boolean(data.hasLegendarySword);
+    renderInventory();
+  });
 
-  // 최대 개수 유지 (메모리 보호)
-  while (logContainer.children.length > MAX_LOG_ENTRIES) {
-    logContainer.removeChild(logContainer.firstChild);
-  }
-  
-  // 자동 스크롤
-  logContainer.scrollTop = logContainer.scrollHeight;
+  const offKey = channel.on(MSG.KEY_COLLECTED, () => {
+    state.hasKey = true;
+    renderInventory();
+  });
+
+  const offItem = channel.on(MSG.ITEM_COLLECTED, (data) => {
+    if (data && data.hasMapItem !== undefined) state.hasMapItem = Boolean(data.hasMapItem);
+    if (data && data.hasBootsItem !== undefined) state.hasBootsItem = Boolean(data.hasBootsItem);
+    renderInventory();
+  });
+
+  const offSword = channel.on(MSG.SWORD_DRAWN, () => {
+    state.hasLegendarySword = true;
+    renderInventory();
+  });
+
+  return () => {
+    offTick();
+    offKey();
+    offItem();
+    offSword();
+  };
 }

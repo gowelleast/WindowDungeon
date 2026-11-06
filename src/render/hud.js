@@ -51,8 +51,6 @@ export function drawStageTransitionOverlay(ctx, transitionState) {
 export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = null) {
   const { W, CX } = getDim(ctx);
   const stage = (hudExtra && hudExtra.stage) || 1;
-  const hasMapItem = Boolean(hudExtra && hudExtra.hasMapItem);
-  const hasBootsItem = Boolean(hudExtra && hudExtra.hasBootsItem);
   const hasLegendarySword = Boolean(hudExtra && hudExtra.hasLegendarySword);
   ctx.save();
 
@@ -62,8 +60,6 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
   let textColor = '#94a3b8';
   let glowColor = 'transparent';
 
-  const itemIcons = `${hasMapItem ? ' 🗺️' : ''}${hasBootsItem ? ' 👢' : ''}${hasLegendarySword ? ' 🗡️' : ''}`;
-
   if (stage === 5) {
     const bossHp = (hudExtra && hudExtra.bossHp) ?? 3;
     const bossMaxHp = (hudExtra && hudExtra.bossMaxHp) ?? 3;
@@ -72,17 +68,17 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
     const searchTimeLeft = (hudExtra && hudExtra.searchTimeLeft) || 0;
     const hearts = '❤️'.repeat(Math.max(0, bossHp)) + '🖤'.repeat(Math.max(0, bossMaxHp - bossHp));
     if (bossHp <= 0) {
-      leftText = `⚔️ S5 | 클리어${itemIcons}`;
+      leftText = '⚔️ S5 | 클리어';
       borderColor = '#facc15';
       textColor = '#fef08a';
       glowColor = '#eab308';
     } else if (bossState === 'barrage') {
-      leftText = `⚔️ S5 | 탄막 ${barrageTimeLeft}s | 👑${hearts}${itemIcons}`;
+      leftText = `⚔️ S5 | 탄막 ${barrageTimeLeft}s | 👑${hearts}`;
       borderColor = '#f43f5e';
       textColor = '#fecdd3';
       glowColor = '#e11d48';
     } else {
-      leftText = `⚔️ S5 | 탐색 ${searchTimeLeft}s | 👑${hearts}${itemIcons}`;
+      leftText = `⚔️ S5 | 탐색 ${searchTimeLeft}s | 👑${hearts}`;
       borderColor = '#c084fc';
       textColor = '#f3e8ff';
       glowColor = '#9333ea';
@@ -90,24 +86,24 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
   } else if (stage === 4) {
     const isSwordTrapped = Boolean(hudExtra && hudExtra.isSwordTrapped);
     if (hasLegendarySword) {
-      leftText = `🗡️ S4 | 성검 획득${itemIcons}`;
+      leftText = '🗡️ S4 | 성검 획득';
       borderColor = '#facc15';
       textColor = '#fef08a';
       glowColor = '#eab308';
     } else if (isSwordTrapped) {
-      leftText = `🗡️ S4 | 성검 그로기${itemIcons}`;
+      leftText = '🗡️ S4 | 성검 그로기';
       borderColor = '#facc15';
       textColor = '#fef08a';
       glowColor = '#eab308';
     } else {
-      leftText = `🗡️ S4 | [SPACE] 문 닫기${itemIcons}`;
+      leftText = '🗡️ S4 | [SPACE] 문 닫기';
       borderColor = '#38bdf8';
       textColor = '#bae6fd';
       glowColor = '#0284c7';
     }
   } else if (stage === 3) {
     const laserConnected = Boolean(hudExtra && hudExtra.laserConnected);
-    leftText = `${laserConnected ? '⚡ S3 | 연결 완료' : '⚡ S3 | 성검에 레이저 연결'}${itemIcons}`;
+    leftText = laserConnected ? '⚡ S3 | 연결 완료' : '⚡ S3 | 성검에 레이저 연결';
     borderColor = laserConnected ? '#facc15' : '#38bdf8';
     textColor = laserConnected ? '#fef08a' : '#7dd3fc';
     glowColor = laserConnected ? '#eab308' : '#0284c7';
@@ -117,7 +113,7 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
     const timeLeft = (hudExtra && hudExtra.stage2TimeLeft) ?? 0;
     const isOvertime = Boolean(hudExtra && hudExtra.isOvertime);
     const timeLabel = isOvertime ? '⚡OVERTIME' : `⏱️${timeLeft}s`;
-    leftText = `💠 S2 | 🔵${pScore} : ${mScore}🔴 | ${timeLabel}${itemIcons}`;
+    leftText = `💠 S2 | 🔵${pScore} : ${mScore}🔴 | ${timeLabel}`;
     if (isOvertime) {
       borderColor = '#f59e0b';
       textColor = '#fde047';
@@ -135,7 +131,7 @@ export function drawHUD(ctx, hasKey, isMuted, lockedAlertTimer = 0, hudExtra = n
       textColor = '#e2e8f0';
     }
   } else {
-    leftText = `${hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE'}${itemIcons}`;
+    leftText = hasKey ? '🔑 KEY: OK' : '🔑 KEY: NONE';
     borderColor = hasKey ? '#eab308' : '#475569';
     textColor = hasKey ? '#fef08a' : '#94a3b8';
     glowColor = hasKey ? '#eab308' : 'transparent';

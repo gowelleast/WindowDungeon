@@ -315,12 +315,9 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   document.getElementById('start-screen').style.display = 'none';
   document.getElementById('status').style.display = 'block';
 
-  // 로그 및 버튼 초기화
-  const logContainer = document.getElementById('inspector-log');
-  if (logContainer) logContainer.innerHTML = '';
   document.getElementById('btn-reset').style.display = 'none';
 
-  // 대시보드 컴포넌트 초기화
+  // 대시보드 컴포넌트 초기화 (공간 미니맵 & 보유 아이템창)
   sessionDisposers.push(initMinimap(channel));
   sessionDisposers.push(initInspector(channel));
 
