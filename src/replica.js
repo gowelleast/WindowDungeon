@@ -617,15 +617,19 @@ channel.on(MSG.BOSS_HIT, (data) => {
   if (!data) return;
   const isPlayerInThisRoom = Boolean(myCellId && latestTickData && latestTickData.activeCellId === myCellId);
   if (isPlayerInThisRoom) {
-    sound.playSwordSlash(Boolean(data.isDefeated));
-    if (data.isDefeated) {
-      toastText = '🏆 보스 처치';
-      toastColor = '#facc15';
-      toastTimer = 90;
+    if (data.swingOnly) {
+      sound.playSwordSwing();
     } else {
-      toastText = `⚔️ 공격 적중 (남은 체력: ❤️ x ${data.hp})`;
-      toastColor = '#fef08a';
-      toastTimer = 70;
+      sound.playSwordSlash(Boolean(data.isDefeated));
+      if (data.isDefeated) {
+        toastText = '🏆 보스 처치';
+        toastColor = '#facc15';
+        toastTimer = 90;
+      } else {
+        toastText = `⚔️ 공격 적중 (남은 체력: ❤️ x ${data.hp})`;
+        toastColor = '#fef08a';
+        toastTimer = 70;
+      }
     }
   }
   scheduleRender();

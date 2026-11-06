@@ -50,6 +50,63 @@ function pickNextBossRoom(excludeCellId) {
   return chosenId;
 }
 
+function getFacingAngle(facing) {
+  if (facing === 'right') return 0;
+  if (facing === 'down') return Math.PI / 2;
+  if (facing === 'left') return Math.PI;
+  return -Math.PI / 2; // 'up'
+}
+
+/**
+ * 플레이어가 휘두른 성검 궤적(부채꼴 검기)에 보스가 닿았는지 판정합니다.
+ */
+function tryHitBossWithSlash(channel) {
+  const { boss, player } = world;
+  const se = boss.slashEffect;
+  if (!se || se.hitBoss || se.cellId !== player.cellId) return false;
+  if (boss.state !== 'searching' || boss.cellId !== player.cellId || boss.spawnTimer > 16) return false;
+
+  const dx = boss.lx - player.lx;
+  const dy = boss.ly - player.ly;
+  const dist = Math.hypot(dx, dy);
+
+  const swingAngle = se.angle;
+  const slashCx = player.lx + Math.cos(swingAngle) * 34;
+  const slashCy = player.ly + Math.sin(swingAngle) * 34;
+  const distToSlash = Math.hypot(boss.lx - slashCx, boss.ly - slashCy);
+
+  const angleToBoss = Math.atan2(dy, dx);
+  const angleDiff = Math.abs(Math.atan2(Math.sin(angleToBoss - swingAngle), Math.cos(angleToBoss - swingAngle)));
+
+  // 바라보는 전방 부채꼴 범위(거리 84px 이내 & 전방 ±95도) 또는 검기 중심 반경(44px)에 보스가 들어오면 적중!
+  const isHit = (dist <= 84 && angleDiff <= Math.PI * 0.53) || distToSlash <= 44;
+  if (!isHit) return false;
+
+  se.hitBoss = true;
+  boss.hp = Math.max(0, boss.hp - 1);
+  boss.bullets = [];
+  player.invulnerableTimer = Math.max(player.invulnerableTimer, 30);
+
+  if (boss.hp <= 0) {
+    boss.state = 'dying';
+    boss.actionTimer = 52;
+  } else {
+    boss.state = 'hit';
+    boss.actionTimer = 28;
+  }
+
+  console.log(`[Master] ⚔️ 성검 참격 적중! 보스 남은 체력: ${boss.hp}/${boss.maxHp}`);
+  channel.send(MSG.BOSS_HIT, {
+    fromCellId: player.cellId,
+    bossCellId: boss.cellId,
+    hp: boss.hp,
+    maxHp: boss.maxHp,
+    isDefeated: boss.hp <= 0,
+    activeCellId: player.cellId
+  });
+  return true;
+}
+
 /**
  * Stage 5 전용: 심연의 마왕(👑) 탄막 회피 & 방 추격·성검 직격 보스전 AI 업데이트
  */
@@ -63,6 +120,13 @@ function updateStage5BossAI(channel) {
   const cy = H / 2;
 
   if (boss.slashEffect) {
+    if (boss.slashEffect.cellId === player.cellId) {
+      boss.slashEffect.x = player.lx;
+      boss.slashEffect.y = player.ly;
+    }
+    if (boss.slashEffect.timer > 3 && !boss.slashEffect.hitBoss) {
+      tryHitBossWithSlash(channel);
+    }
     boss.slashEffect.timer--;
     if (boss.slashEffect.timer <= 0) {
       boss.slashEffect = null;
@@ -317,37 +381,27 @@ export const stage5Controller = {
 
     if (boss.state === 'searching' && boss.cellId && player.cellId === boss.cellId) {
       const distToBoss = Math.hypot(player.lx - boss.lx, player.ly - boss.ly);
-      isNearBoss = distToBoss < 76;
+      isNearBoss = distToBoss < 80;
+    }
 
-      if (isNearBoss && spaceJustPressed) {
-        boss.hp = Math.max(0, boss.hp - 1);
-        boss.bullets = [];
-        boss.slashEffect = {
-          cellId: player.cellId,
-          x: boss.lx,
-          y: boss.ly,
-          angle: Math.atan2(boss.ly - player.ly, boss.lx - player.lx),
-          timer: 20,
-          maxTimer: 20
-        };
+    // 언제든 [SPACE]를 누르면 플레이어가 바라보는 방향(facing)으로 성검을 휘두름!
+    const canSwing = !boss.slashEffect || boss.slashEffect.timer <= 4;
+    if (spaceJustPressed && canSwing && boss.state !== 'dying') {
+      const swingAngle = getFacingAngle(player.facing);
+      boss.slashEffect = {
+        cellId: player.cellId,
+        x: player.lx,
+        y: player.ly,
+        angle: swingAngle,
+        hitBoss: false,
+        timer: 11,
+        maxTimer: 11
+      };
 
-        player.invulnerableTimer = Math.max(player.invulnerableTimer, 30);
-
-        if (boss.hp <= 0) {
-          boss.state = 'dying';
-          boss.actionTimer = 52;
-        } else {
-          boss.state = 'hit';
-          boss.actionTimer = 28;
-        }
-
-        console.log(`[Master] ⚔️ 성검 참격 적중! 보스 남은 체력: ${boss.hp}/${boss.maxHp}`);
+      const hitImmediately = tryHitBossWithSlash(channel);
+      if (!hitImmediately) {
         channel.send(MSG.BOSS_HIT, {
-          fromCellId: player.cellId,
-          bossCellId: boss.cellId,
-          hp: boss.hp,
-          maxHp: boss.maxHp,
-          isDefeated: boss.hp <= 0,
+          swingOnly: true,
           activeCellId: player.cellId
         });
       }

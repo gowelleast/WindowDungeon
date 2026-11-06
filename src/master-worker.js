@@ -588,6 +588,7 @@ setInterval(() => {
         x: boss.slashEffect.x,
         y: boss.slashEffect.y,
         angle: boss.slashEffect.angle,
+        hitBoss: Boolean(boss.slashEffect.hitBoss),
         progress: 1 - (boss.slashEffect.timer / boss.slashEffect.maxTimer)
       } : null
     } : null,

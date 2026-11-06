@@ -453,25 +453,6 @@ export function drawStage5BossAndArena(ctx, stage5State) {
       ctx.restore();
     }
 
-    if (!isHit && isNearBoss && !isDying && !isVanishing) {
-      const floatOffset = Math.sin(now / 120) * 2.5;
-      const btnW = 132;
-      const btnH = 26;
-      const btnX = Math.max(8, Math.min(W - btnW - 8, bx - btnW / 2));
-      const btnY = Math.min(H - 34, by + 28 + floatOffset);
-
-      drawFloatingActionBadge(ctx, '⚔️ [SPACE] 공격', btnX + btnW / 2, btnY, {
-        width: btnW,
-        height: btnH,
-        bgColor: 'rgba(15, 23, 42, 0.95)',
-        strokeColor: '#facc15',
-        lineWidth: 2,
-        shadowColor: '#eab308',
-        shadowBlur: 12,
-        textColor: '#fef08a'
-      });
-    }
-
     // (2-I) 보스 최후의 초신성 폭발 연출 ('dying')
     if (isDying) {
       const dProg = Math.max(0.05, Math.min(1, boss.dyingProgress || 0));
@@ -529,36 +510,100 @@ export function drawStage5BossAndArena(ctx, stage5State) {
     ctx.restore();
   }
 
-  // 4. ⚔️ 황금 성검 초승달 참격 이펙트
+  // 4. ⚔️ 플레이어 전방 성검 휘두르기(Directional Sword Swing) & 보스 적중 이펙트
   if (boss.slashEffect && boss.slashEffect.cellId === myCellId) {
     const se = boss.slashEffect;
     const prog = Math.max(0, Math.min(1, se.progress || 0));
-    const alpha = Math.max(0, 1 - prog);
+    const ease = 1 - Math.pow(1 - prog, 2.4);
+    const alpha = Math.max(0, 1 - Math.pow(prog, 1.6));
+
+    const startSweep = -Math.PI * 0.45;
+    const endSweep = Math.PI * 0.45;
+    const curSweep = startSweep + (endSweep - startSweep) * ease;
+    const trailStart = Math.max(startSweep, curSweep - Math.PI * 0.58 * (1 - prog * 0.45));
 
     ctx.save();
     ctx.translate(se.x, se.y);
     ctx.rotate(se.angle || 0);
 
-    const arcR = 26 + prog * 28;
-    ctx.strokeStyle = `rgba(250, 204, 21, ${alpha})`;
-    ctx.lineWidth = 8 * alpha + 2;
+    // (4-A) 휘두른 궤적을 따라 남는 초승달 황금 검기 잔상
+    const slashR = 36 + ease * 8;
+    ctx.strokeStyle = `rgba(250, 204, 21, ${alpha * 0.85})`;
+    ctx.lineWidth = 9 * alpha + 2;
     ctx.shadowColor = '#facc15';
-    ctx.shadowBlur = 20;
+    ctx.shadowBlur = 16;
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.arc(0, 0, arcR, -Math.PI * 0.55, Math.PI * 0.55);
+    ctx.arc(4, 0, slashR, trailStart, curSweep);
     ctx.stroke();
 
-    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-    ctx.lineWidth = 4 * alpha + 1;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.95})`;
+    ctx.lineWidth = 3.5 * alpha + 1;
     ctx.beginPath();
-    ctx.moveTo(-42, -18);
-    ctx.lineTo(42, 18);
-    ctx.moveTo(-32, 24);
-    ctx.lineTo(32, -24);
+    ctx.arc(6, 0, slashR + 2, trailStart + 0.08, curSweep);
     ctx.stroke();
+
+    // (4-B) 부채꼴 궤적 끝에서 실제로 휘둘러지는 황금 성검 본체
+    ctx.save();
+    ctx.rotate(curSweep);
+    ctx.globalAlpha = Math.min(1, alpha * 1.25);
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 12;
+
+    // 검신 (플레이어 손 위치 x=14 에서 바깥쪽 x=50 까지 뻗음)
+    ctx.fillStyle = '#fef08a';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(50, 0);
+    ctx.lineTo(41, -4.2);
+    ctx.lineTo(18, -3);
+    ctx.lineTo(18, 3);
+    ctx.lineTo(41, 4.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // 코등이 (Crossguard)
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(18, -9);
+    ctx.lineTo(18, 9);
+    ctx.stroke();
+
+    // 손잡이 (Grip)
+    ctx.strokeStyle = '#b45309';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(11, 0);
+    ctx.lineTo(18, 0);
+    ctx.stroke();
+    ctx.restore();
 
     ctx.restore();
+
+    // (4-C) 검기가 보스에게 적중했을 때 보스 위치에 터지는 타격 섬광
+    if (se.hitBoss && isBossHere) {
+      const bx = boss.lx ?? CX;
+      const by = boss.ly ?? CY;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.shadowColor = '#facc15';
+      ctx.shadowBlur = 18;
+      ctx.lineWidth = 3.5 * alpha + 1;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-28, -16);
+      ctx.lineTo(28, 16);
+      ctx.moveTo(-22, 20);
+      ctx.lineTo(22, -20);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   ctx.restore();

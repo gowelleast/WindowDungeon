@@ -713,6 +713,30 @@ class SoundSystem {
   }
 
   /**
+   * 15-A. 스테이지 5 허공 성검 휘두르기 사운드 (경쾌한 검풍 스윕)
+   */
+  playSwordSwing() {
+    this.init();
+    if (!this.ctx || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(520, now);
+    osc.frequency.exponentialRampToValueAtTime(160, now + 0.13);
+
+    gain.gain.setValueAtTime(0.01, now);
+    gain.gain.linearRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  /**
    * 15. 스테이지 5 성검 참격 발사 및 보스 타격 사운드 (황금 검기 스윕 + 타격 쾌감 화음)
    */
   playSwordSlash(isFinalHit = false) {
