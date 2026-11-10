@@ -343,10 +343,14 @@ canvas#game-canvas {
 }
 
 /* Document PiP 윈도우 내부 스타일 */
+html.pip-html,
+html:has(body.pip-body),
 body.pip-body {
   margin: 0;
   padding: 0;
-  background: #090b10;
+  min-width: 0;
+  min-height: 0;
+  background: #080a0f;
   color: #f1f5f9;
   font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   overflow: hidden;
@@ -361,91 +365,46 @@ body.pip-body {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: #090b10;
-}
-
-/* 1. 축소 모드: 컴팩트 뱃지 */
-.pip-collapsed-view {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: rgba(15, 23, 42, 0.95);
-  border: 1.5px solid rgba(56, 189, 248, 0.4);
-  border-radius: 10px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  padding: 6px 14px;
-  box-sizing: border-box;
-}
-
-.pip-collapsed-view:hover {
-  background: rgba(30, 41, 59, 0.98);
-  border-color: #38bdf8;
-  box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
-}
-
-.pip-icon-large {
-  font-size: 22px;
-  line-height: 1;
-}
-
-.pip-collapsed-label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #f8fafc;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pip-kbd {
-  background: #1e293b;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #38bdf8;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 700;
-}
-
-/* 2. 확장 모드: 전체 전술 미니맵 */
-.pip-expanded-view {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: #090b10;
+  background: #080a0f;
 }
 
 .pip-topbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  padding: 6px 10px;
   background: #11151f;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  cursor: pointer;
-}
-
-.pip-topbar:hover {
-  background: #161c28;
 }
 
 .pip-topbar-title {
   font-size: 12px;
   font-weight: 700;
-  color: #cbd5e1;
+  color: #38bdf8;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+}
+
+.pip-close-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pip-close-btn:hover {
+  color: #f8fafc;
+  background: #334155;
 }
 
 .pip-canvas-area {
   flex: 1;
+  min-height: 0;
   position: relative;
   width: 100%;
   height: 100%;
@@ -460,9 +419,10 @@ body.pip-body {
 }
 
 .pip-bottom-metrics {
-  padding: 4px 10px;
+  flex-shrink: 0;
+  padding: 3px 10px;
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
+  font-size: 10px;
   color: #34d399;
   background: rgba(0, 0, 0, 0.4);
   border-top: 1px solid rgba(255, 255, 255, 0.05);

@@ -198,11 +198,20 @@ channel.on(MSG.HELLO, (data) => {
     }
 
     if (cell) {
-      console.log("[Master] Sending ASSIGN to:", data.winId);
-      channel.send(MSG.ASSIGN, {
-        ...cell,
-        hasFlag: (cell.id === flagCellId)
-      });
+      if (screens.length > 0) {
+        channel.send(MSG.SCREENS_UPDATE, {
+          screens,
+          currentScreenLabel,
+          roomW: CONFIG.ROOM_OUTER_W,
+          roomH: CONFIG.ROOM_OUTER_H
+        });
+      }
+      for (const c of cellMap.values()) {
+        channel.send(MSG.ASSIGN, {
+          ...c,
+          hasFlag: (c.id === flagCellId)
+        });
+      }
     } else {
       console.warn("[Master] 알 수 없는 방 접속:", data.winId);
     }

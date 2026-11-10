@@ -3,6 +3,7 @@ import { MSG } from './protocol.js';
 import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
 import { CONFIG } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
+import { initMinimap, togglePipMinimap } from './minimap.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
 const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -22,6 +23,7 @@ window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
 
 const channel = new DungeonChannel(winId);
+const disposeMinimap = initMinimap(channel);
 
 const canvas = document.getElementById('game-canvas');
 canvas.width = dynamicW;
@@ -102,6 +104,12 @@ window.addEventListener('keydown', (e) => {
   const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) e.preventDefault();
 
+  // M 키: 전술 미니맵 플로팅 PiP 즉시 열기 / 닫기 토글
+  if (isM && !e.repeat) {
+    togglePipMinimap(window, channel);
+    return;
+  }
+
   // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
   if (e.key === ' ' && isVictory) {
     channel.send(MSG.CLOSE_ALL);
@@ -160,6 +168,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+  if (typeof disposeMinimap === 'function') disposeMinimap();
   channel.send(MSG.BYE, { winId });
   channel.close();
 });
@@ -215,5 +224,6 @@ channel.on(MSG.VICTORY, (data) => {
 });
 
 channel.on(MSG.CLOSE_ALL, () => {
+  if (typeof disposeMinimap === 'function') disposeMinimap();
   window.close();
 });

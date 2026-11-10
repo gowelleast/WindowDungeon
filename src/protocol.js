@@ -9,6 +9,8 @@ export const MSG = {
   DOOR_PROMPT: "doorPrompt",
   PING: "ping",
   SCREENS_UPDATE: "screensUpdate",
+  PIP_CLOSE: "pipClose",
+  PIP_STATE: "pipState",
   VICTORY: "victory",
   CLOSE_ALL: "closeAll",
 };
