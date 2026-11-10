@@ -211,12 +211,12 @@ export function getAdjacentCell(screenLabel, gx, gy, dir) {
     const maxGy = Math.floor(targetScreen.availHeight / slotH) - 1;
 
     const alignY = () => {
-      const y = Math.floor((gy * slotH + currentScreen.availTop - targetScreen.availTop) / slotH);
+      const y = Math.round((gy * slotH + currentScreen.availTop - targetScreen.availTop) / slotH);
       return Math.max(0, Math.min(y, maxGy));
     };
 
     const alignX = () => {
-      const x = Math.floor((gx * slotW + currentScreen.availLeft - targetScreen.availLeft) / slotW);
+      const x = Math.round((gx * slotW + currentScreen.availLeft - targetScreen.availLeft) / slotW);
       return Math.max(0, Math.min(x, maxGx));
     };
 

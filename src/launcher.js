@@ -225,8 +225,33 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
+// 다중 모니터 확장 모드 옵션 토글 바인딩
+const toggleMultiScreen = document.getElementById('toggle-multi-screen');
+const multiScreenOptionLabel = document.getElementById('multi-screen-option-label');
+const multiScreenOptionDesc = document.getElementById('multi-screen-option-desc');
+
+function syncMultiScreenOptionUI() {
+  const isMulti = Boolean(toggleMultiScreen && toggleMultiScreen.checked);
+  CONFIG.SINGLE_SCREEN_ONLY = !isMulti;
+  if (multiScreenOptionLabel) {
+    multiScreenOptionLabel.classList.toggle('is-checked', isMulti);
+  }
+  if (multiScreenOptionDesc) {
+    multiScreenOptionDesc.textContent = isMulti
+      ? '연결된 모든 모니터 화면이 하나의 거대한 던전 맵으로 이어집니다'
+      : '현재 화면에서만 플레이 (켜면 연결된 모든 모니터가 하나의 맵으로 이어집니다)';
+  }
+}
+
+if (toggleMultiScreen) {
+  toggleMultiScreen.checked = !CONFIG.SINGLE_SCREEN_ONLY;
+  syncMultiScreenOptionUI();
+  toggleMultiScreen.addEventListener('change', syncMultiScreenOptionUI);
+}
+
 document.getElementById('btn-start').addEventListener('click', async () => {
   disposeSession();
+  syncMultiScreenOptionUI();
 
   let screens = [];
   let currentScreenLabel = '';
@@ -255,27 +280,58 @@ document.getElementById('btn-start').addEventListener('click', async () => {
   CONFIG.ROOM_SLOT_H = slotH;
 
   if (details) {
-    const formatScreen = (s) => ({
-      label: s.label, availLeft: s.availLeft, availTop: s.availTop,
-      availWidth: s.availWidth, availHeight: s.availHeight, isPrimary: s.isPrimary
-    });
+    const buildTargetScreens = () => {
+      const rawList = CONFIG.SINGLE_SCREEN_ONLY
+        ? [details.currentScreen]
+        : Array.from(details.screens || [details.currentScreen]);
 
-    const getTargetScreens = () => {
-      if (CONFIG.SINGLE_SCREEN_ONLY) {
-        return [formatScreen(details.currentScreen)];
+      const usedLabels = new Set();
+      let resolvedCurrentLabel = '';
+
+      const formatted = rawList.map((s, idx) => {
+        const baseLabel = (s.label && s.label.trim()) ? s.label.trim() : `Display ${idx + 1}`;
+        let uniqueLabel = baseLabel;
+        let suffix = 2;
+        while (usedLabels.has(uniqueLabel)) {
+          uniqueLabel = `${baseLabel} #${suffix++}`;
+        }
+        usedLabels.add(uniqueLabel);
+
+        const isCurrent = (s === details.currentScreen) || (
+          s.availLeft === details.currentScreen.availLeft &&
+          s.availTop === details.currentScreen.availTop
+        );
+        if (isCurrent && !resolvedCurrentLabel) {
+          resolvedCurrentLabel = uniqueLabel;
+        }
+
+        return {
+          label: uniqueLabel,
+          availLeft: s.availLeft,
+          availTop: s.availTop,
+          availWidth: s.availWidth,
+          availHeight: s.availHeight,
+          isPrimary: s.isPrimary
+        };
+      });
+
+      if (!resolvedCurrentLabel && formatted.length > 0) {
+        resolvedCurrentLabel = formatted[0].label;
       }
-      return details.screens.map(formatScreen);
+      return { formatted, resolvedCurrentLabel };
     };
 
-    screens = getTargetScreens();
-    currentScreenLabel = details.currentScreen.label;
+    const initScreenData = buildTargetScreens();
+    screens = initScreenData.formatted;
+    currentScreenLabel = initScreenData.resolvedCurrentLabel;
     left = details.currentScreen.availLeft;
     top = details.currentScreen.availTop;
     
     const updateScreens = () => {
       // HELLO 재동기화 시에도 최신 배치를 보내도록 세션 상태를 함께 갱신
-      screens = getTargetScreens();
-      currentScreenLabel = details.currentScreen.label;
+      const updated = buildTargetScreens();
+      screens = updated.formatted;
+      currentScreenLabel = updated.resolvedCurrentLabel;
       const data = { screens, currentScreenLabel, roomW, roomH, slotW, slotH };
       channel.send(MSG.SCREENS_UPDATE, data);
       channel.emitLocal(MSG.SCREENS_UPDATE, data);

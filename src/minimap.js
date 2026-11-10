@@ -502,18 +502,20 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   }
   targetCtx.stroke();
 
-  // 2. 모니터 하우징 및 모니터별 동적 방 크기 설정 사전 캐싱
+  // 2. 모니터 하우징 및 방 슬롯 크기 설정 사전 캐싱
   const screenLookup = new Map();
   for (const s of screens) {
-    const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+    const fallbackSizing = (!CONFIG.ROOM_SLOT_W || !CONFIG.ROOM_SLOT_H)
+      ? computeDynamicRoomSize(s.availWidth, s.availHeight)
+      : null;
     screenLookup.set(s.label, {
       screen: s,
       cellCfg: {
         ...CONFIG,
-        ROOM_OUTER_W: screenSizing.roomW,
-        ROOM_OUTER_H: screenSizing.roomH,
-        ROOM_SLOT_W: screenSizing.slotW,
-        ROOM_SLOT_H: screenSizing.slotH
+        ROOM_OUTER_W: CONFIG.ROOM_OUTER_W || (fallbackSizing && fallbackSizing.roomW),
+        ROOM_OUTER_H: CONFIG.ROOM_OUTER_H || (fallbackSizing && fallbackSizing.roomH),
+        ROOM_SLOT_W: CONFIG.ROOM_SLOT_W || (fallbackSizing && fallbackSizing.slotW),
+        ROOM_SLOT_H: CONFIG.ROOM_SLOT_H || (fallbackSizing && fallbackSizing.slotH)
       }
     });
 
