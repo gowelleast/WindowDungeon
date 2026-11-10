@@ -1,8 +1,9 @@
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
 import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
-import { CONFIG } from './config.js';
+import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
+import { initMinimap, togglePipMinimap } from './minimap.js';
 
 // window.open의 두 번째 인자가 window.name으로 자동 설정되므로 이를 최우선으로 사용합니다.
 const hashParams = new URLSearchParams(window.location.hash.substring(1));
@@ -13,15 +14,19 @@ if (!winId || winId === '') {
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
 
 // 해상도에 맞춘 동적 방 크기(w, h) 적용
-const dynamicW = parseInt(hashParams.get('w'), 10) || CONFIG.ROOM_OUTER_W;
-const dynamicH = parseInt(hashParams.get('h'), 10) || CONFIG.ROOM_OUTER_H;
+const initSizing = computeDynamicRoomSize(window.screen.availWidth, window.screen.availHeight);
+const dynamicW = parseInt(hashParams.get('w'), 10) || initSizing.roomW;
+const dynamicH = parseInt(hashParams.get('h'), 10) || initSizing.roomH;
 CONFIG.ROOM_OUTER_W = dynamicW;
 CONFIG.ROOM_OUTER_H = dynamicH;
+CONFIG.ROOM_SLOT_W = initSizing.slotW;
+CONFIG.ROOM_SLOT_H = hashParams.get('h') ? (dynamicH + CONFIG.CHROME_OVERHEAD_Y) : initSizing.slotH;
 
 window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
 
 const channel = new DungeonChannel(winId);
+const disposeMinimap = initMinimap(channel);
 
 const canvas = document.getElementById('game-canvas');
 canvas.width = dynamicW;
@@ -99,7 +104,14 @@ channel.on(MSG.TICK, (data) => {
 // 3. 키보드 입력 및 동기적 window.open 실행
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
-  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+  const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || isM) e.preventDefault();
+
+  // M 키: 전술 미니맵 플로팅 PiP 즉시 열기 / 닫기 토글
+  if (isM && !e.repeat) {
+    togglePipMinimap(window, channel);
+    return;
+  }
 
   // 클리어 후 스페이스바 입력 시 모든 창 닫기 및 런처 복귀
   if (e.key === ' ' && isVictory) {
@@ -128,15 +140,18 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
-  if (!keys.has(e.key)) {
-    keys.add(e.key);
+  const keyName = isM ? 'm' : e.key;
+  if (!keys.has(keyName)) {
+    keys.add(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });
   }
 });
 
 window.addEventListener('keyup', (e) => {
-  if (keys.has(e.key)) {
-    keys.delete(e.key);
+  const isM = e.code === 'KeyM' || e.key === 'm' || e.key === 'M' || e.key === 'ㅡ';
+  const keyName = isM ? 'm' : e.key;
+  if (keys.has(keyName)) {
+    keys.delete(keyName);
     channel.send(MSG.INPUT, { keys: Array.from(keys) });
   }
 });
@@ -156,6 +171,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('beforeunload', () => {
+  if (typeof disposeMinimap === 'function') disposeMinimap();
   channel.send(MSG.BYE, { winId });
   channel.close();
 });
@@ -211,5 +227,6 @@ channel.on(MSG.VICTORY, (data) => {
 });
 
 channel.on(MSG.CLOSE_ALL, () => {
+  if (typeof disposeMinimap === 'function') disposeMinimap();
   window.close();
 });

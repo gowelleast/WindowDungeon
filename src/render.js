@@ -314,8 +314,8 @@ export function drawFlag(ctx, cx, cy) {
   for (let i = 0; i < 4; i++) {
     const angle = (now / 600) + (i * Math.PI / 2);
     const dist = 32 + Math.sin(now / 300 + i) * 6;
-    const px = cx + Math.cos(angle) * dist;
-    const py = cy + Math.sin(angle) * (dist * 0.6) + hoverY;
+    const px = targetCx + Math.cos(angle) * dist;
+    const py = targetCy + Math.sin(angle) * (dist * 0.6) + hoverY;
 
     ctx.fillStyle = '#fde047';
     ctx.shadowColor = '#facc15';

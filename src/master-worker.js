@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 import { MSG } from './protocol.js';
 import { DungeonChannel } from './channel.js';
-import { cellId as getCellId, cellToScreenRect, isCellValid, neighbors } from './grid.js';
+import { cellId as getCellId, cellToScreenRect, getScreenSizing, isCellValid, parseCellId } from './grid.js';
 
 const channel = new DungeonChannel('master-worker');
 
@@ -18,6 +18,53 @@ const player = {
 };
 
 const keys = new Set();
+
+function syncConfigToCell(cellId) {
+  const parsed = parseCellId(cellId);
+  const screen = parsed ? (screens.find(s => s.label === parsed.screenLabel) || screens[0]) : screens[0];
+  if (screen) {
+    const sizing = getScreenSizing(screen, CONFIG);
+    CONFIG.ROOM_OUTER_W = sizing.roomW;
+    CONFIG.ROOM_SLOT_W = sizing.slotW;
+  }
+}
+
+/**
+ * 해상도/분할 수가 다른 두 인접 모니터 사이에서 양방향 대칭(1:1)이 보장되는 셀 인덱스를 계산합니다.
+ */
+function resolveCrossScreenAxis(currStart, currSpan, currSlot, currCount, currIdx, targetStart, targetSpan, targetSlot, targetCount) {
+  const mapCoarseToFine = (cStart, cSlot, cIdx, fStart, fSpan, fSlot, fCount) => {
+    const cellStart = cStart + cIdx * cSlot;
+    const cellEnd = cellStart + cSlot;
+    const fEnd = fStart + fSpan;
+    if (Math.min(cellEnd, fEnd) - Math.max(cellStart, fStart) <= 0) {
+      return -1;
+    }
+    const center = cellStart + cSlot * 0.5;
+    const rawIdx = Math.floor((center - fStart) / fSlot);
+    if (rawIdx < 0 || rawIdx >= fCount) {
+      return -1;
+    }
+    return rawIdx;
+  };
+
+  if (currSlot > targetSlot) {
+    return mapCoarseToFine(currStart, currSlot, currIdx, targetStart, targetSpan, targetSlot, targetCount);
+  }
+  if (currSlot < targetSlot) {
+    for (let tIdx = 0; tIdx < targetCount; tIdx++) {
+      if (mapCoarseToFine(targetStart, targetSlot, tIdx, currStart, currSpan, currSlot, currCount) === currIdx) {
+        return tIdx;
+      }
+    }
+    return -1;
+  }
+
+  const mapped = Math.round((currIdx * currSlot + currStart - targetStart) / targetSlot);
+  if (mapped < 0 || mapped >= targetCount) return -1;
+  const reverse = Math.round((mapped * targetSlot + targetStart - currStart) / currSlot);
+  return reverse === currIdx ? mapped : -1;
+}
 
 function getAdjacentCell(screenLabel, gx, gy, dir) {
   const currentScreen = screens.find(s => s.label === screenLabel);
@@ -66,39 +113,43 @@ function getAdjacentCell(screenLabel, gx, gy, dir) {
   }
 
   if (targetScreen) {
-    let mappedGx = 0;
-    let mappedGy = 0;
-    
-    const maxGx = Math.floor(targetScreen.availWidth / CONFIG.ROOM_OUTER_W) - 1;
-    const maxGy = Math.floor(targetScreen.availHeight / CONFIG.ROOM_OUTER_H) - 1;
+    const currSizing = getScreenSizing(currentScreen, CONFIG);
+    const targetSizing = getScreenSizing(targetScreen, CONFIG);
+    const maxGx = targetSizing.cols - 1;
+    const maxGy = targetSizing.rows - 1;
 
-    // Y축 정렬 (좌/우 이동 시)
-    const alignY = () => {
-      let y = Math.floor((gy * CONFIG.ROOM_OUTER_H + currentScreen.availTop - targetScreen.availTop) / CONFIG.ROOM_OUTER_H);
-      return Math.max(0, Math.min(y, maxGy));
-    };
+    let mappedGx = -1;
+    let mappedGy = -1;
 
-    // X축 정렬 (상/하 이동 시)
-    const alignX = () => {
-      let x = Math.floor((gx * CONFIG.ROOM_OUTER_W + currentScreen.availLeft - targetScreen.availLeft) / CONFIG.ROOM_OUTER_W);
-      return Math.max(0, Math.min(x, maxGx));
-    };
-
-    if (dir === 'right') {
-      mappedGx = 0; 
-      mappedGy = alignY();
-    } else if (dir === 'left') {
-      mappedGx = maxGx; 
-      mappedGy = alignY();
-    } else if (dir === 'down') {
-      mappedGy = 0; 
-      mappedGx = alignX();
-    } else if (dir === 'up') {
-      mappedGy = maxGy; 
-      mappedGx = alignX();
+    if (dir === 'right' || dir === 'left') {
+      mappedGx = (dir === 'right') ? 0 : maxGx;
+      mappedGy = resolveCrossScreenAxis(
+        currentScreen.availTop,
+        currentScreen.availHeight,
+        currSizing.slotH,
+        currSizing.rows,
+        gy,
+        targetScreen.availTop,
+        targetScreen.availHeight,
+        targetSizing.slotH,
+        targetSizing.rows
+      );
+    } else if (dir === 'down' || dir === 'up') {
+      mappedGy = (dir === 'down') ? 0 : maxGy;
+      mappedGx = resolveCrossScreenAxis(
+        currentScreen.availLeft,
+        currentScreen.availWidth,
+        currSizing.slotW,
+        currSizing.cols,
+        gx,
+        targetScreen.availLeft,
+        targetScreen.availWidth,
+        targetSizing.slotW,
+        targetSizing.cols
+      );
     }
 
-    if (isCellValid(targetScreen, mappedGx, mappedGy, CONFIG)) {
+    if (mappedGx >= 0 && mappedGy >= 0 && isCellValid(targetScreen, mappedGx, mappedGy, CONFIG)) {
       return { screen: targetScreen, gx: mappedGx, gy: mappedGy };
     }
   }
@@ -156,6 +207,8 @@ channel.on(MSG.SCREENS_UPDATE, (data) => {
   if (data.roomW && data.roomH) {
     CONFIG.ROOM_OUTER_W = data.roomW;
     CONFIG.ROOM_OUTER_H = data.roomH;
+    CONFIG.ROOM_SLOT_W = data.slotW || data.roomW;
+    CONFIG.ROOM_SLOT_H = data.slotH || (data.roomH + (CONFIG.CHROME_OVERHEAD_Y || 63));
     if (cellMap.size === 0) {
       player.lx = CONFIG.ROOM_OUTER_W / 2;
       player.ly = CONFIG.ROOM_OUTER_H / 2;
@@ -189,6 +242,9 @@ channel.on(MSG.HELLO, (data) => {
         console.log("[Master] Created lobby cell:", cell);
         cellMap.set(lobbyId, cell);
         player.cellId = lobbyId;
+        syncConfigToCell(lobbyId);
+        player.lx = CONFIG.ROOM_OUTER_W / 2;
+        player.ly = CONFIG.ROOM_OUTER_H / 2;
         
         if (!flagCellId) {
           console.log("[Master] Generating flag...");
@@ -198,11 +254,22 @@ channel.on(MSG.HELLO, (data) => {
     }
 
     if (cell) {
-      console.log("[Master] Sending ASSIGN to:", data.winId);
-      channel.send(MSG.ASSIGN, {
-        ...cell,
-        hasFlag: (cell.id === flagCellId)
-      });
+      if (screens.length > 0) {
+        channel.send(MSG.SCREENS_UPDATE, {
+          screens,
+          currentScreenLabel,
+          roomW: CONFIG.ROOM_OUTER_W,
+          roomH: CONFIG.ROOM_OUTER_H,
+          slotW: CONFIG.ROOM_SLOT_W,
+          slotH: CONFIG.ROOM_SLOT_H
+        });
+      }
+      for (const c of cellMap.values()) {
+        channel.send(MSG.ASSIGN, {
+          ...c,
+          hasFlag: (c.id === flagCellId)
+        });
+      }
     } else {
       console.warn("[Master] 알 수 없는 방 접속:", data.winId);
     }
@@ -230,16 +297,19 @@ channel.on(MSG.DOOR_CONFIRM, (data) => {
   }
   
   player.cellId = nextId;
+  syncConfigToCell(nextId);
   keys.clear();
   player.vx = 0;
   player.vy = 0;
   player.kx = 0;
   player.ky = 0;
+  const cx = CONFIG.ROOM_OUTER_W / 2;
+  const cy = CONFIG.ROOM_OUTER_H / 2;
   const doorMargin = player.radius + 35;
-  if (data.dir === 'up') { player.ly = CONFIG.ROOM_OUTER_H - doorMargin; player.facing = 'up'; }
-  else if (data.dir === 'down') { player.ly = doorMargin; player.facing = 'down'; }
-  else if (data.dir === 'left') { player.lx = CONFIG.ROOM_OUTER_W - doorMargin; player.facing = 'left'; }
-  else if (data.dir === 'right') { player.lx = doorMargin; player.facing = 'right'; }
+  if (data.dir === 'up') { player.lx = cx; player.ly = CONFIG.ROOM_OUTER_H - doorMargin; player.facing = 'up'; }
+  else if (data.dir === 'down') { player.lx = cx; player.ly = doorMargin; player.facing = 'down'; }
+  else if (data.dir === 'left') { player.lx = CONFIG.ROOM_OUTER_W - doorMargin; player.ly = cy; player.facing = 'left'; }
+  else if (data.dir === 'right') { player.lx = doorMargin; player.ly = cy; player.facing = 'right'; }
 });
 
 channel.on(MSG.INPUT, (data) => {
@@ -267,6 +337,8 @@ let lastPromptDir = null;
 
 setInterval(() => {
   if (cellMap.size === 0 || isVictory) return;
+
+  syncConfigToCell(player.cellId);
 
   let dx = 0; let dy = 0;
   if (keys.has('ArrowUp') || keys.has('w')) dy -= 1;

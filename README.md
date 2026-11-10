@@ -9,6 +9,7 @@
 [![Web Workers](https://img.shields.io/badge/Concurrency-Web%20Workers-4285F4)](#)
 [![Window Management API](https://img.shields.io/badge/Screen-Window%20Management%20API-00C7B7)](#)
 [![BroadcastChannel API](https://img.shields.io/badge/IPC-BroadcastChannel%20API-FF6F00)](#)
+[![Document Picture-in-Picture API](https://img.shields.io/badge/Always--on--Top-Document%20PiP%20API-8B5CF6)](#)
 
 ---
 
@@ -52,6 +53,14 @@
 * 모니터들의 전역 절대 화면 좌표계(`globalBounds`)를 기반으로 결정론적 꽃가루 물리 시뮬레이션을 동기화합니다.
 * 제일 위쪽 모니터/방의 바닥을 뚫고 지나간 꽃가루가 바로 아래쪽 모니터/방의 천장으로 끊김 없이 이어져 떨어지는 환상적인 다차원 공간감을 연출합니다.
 
+### 7. 📌 Document Picture-in-Picture 기반 전술 플로팅 미니맵
+* **미니맵 가림 문제 극복**: 방 팝업들이 늘어나면서 메인 대시보드 창이 가려져 미니맵을 확인하기 어려워지는 UX 한계를 해결합니다.
+* **Always-on-Top 플로팅 레이더**: Chrome 111+의 최신 **Document Picture-in-Picture API**를 적용하여 OS 최상단에 항상 떠 있는 플로팅 미니맵 윈도우를 제공합니다.
+* **공간 효율적 모드 토글 (`M` 키)**:
+  - **축소 뱃지 모드** (`250 × 68px`): 게임 시작 시 방해되지 않는 작은 지도 이모지 뱃지 형태로 대기합니다.
+  - **확장 레이더 모드** (`280 × 200px`): `[M]` 키를 누르는 즉시 실시간 캔버스가 장착되며 전체 던전 개척 지형 및 모니터 그리드가 표시됩니다.
+  - 한글 자판(`ㅡ`) 상태에서도 IME 전환 없이 즉시 반응하도록 설계되었습니다.
+
 ---
 
 ## 🎮 조작법 & 게임 규칙
@@ -60,6 +69,7 @@
 | :--- | :--- |
 | `↑` `↓` `←` `→` 또는 `W` `A` `S` `D` | 캐릭터 이동 |
 | `Space` | 문 앞에서 다음 방 열기 / 기존 방으로 이동 |
+| `M` (또는 `ㅡ`) | 전술 플로팅 미니맵 토글 (축소 뱃지 ↔ 확장 레이더) |
 
 * **목표**: 미지의 방들을 개척하며 숨겨진 깃발(🚩)을 찾아 도달하세요.
 * **클리어 후**: 승리 화면에서 `Space`를 누르면 열린 모든 방 창이 자동으로 정리되고 메인 화면('새 던전 세션 시작')으로 즉시 자동 복귀합니다.
