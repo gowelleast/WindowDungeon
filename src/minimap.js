@@ -502,20 +502,36 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   }
   targetCtx.stroke();
 
-  // 2. 모니터 하우징 및 방 슬롯 크기 설정 사전 캐싱
+  // 2. 모니터 하우징 및 방 슬롯 크기 설정 사전 캐싱 (가로는 각 모니터에 딱 맞게, 세로는 기준 높이에 통일)
   const screenLookup = new Map();
   for (const s of screens) {
-    const fallbackSizing = (!CONFIG.ROOM_SLOT_W || !CONFIG.ROOM_SLOT_H)
-      ? computeDynamicRoomSize(s.availWidth, s.availHeight)
-      : null;
+    const dynamic = computeDynamicRoomSize(
+      s.availWidth,
+      s.availHeight,
+      380,
+      CONFIG.CHROME_OVERHEAD_Y,
+      CONFIG.CHROME_OVERHEAD_X
+    );
+    const unifiedSlotH = CONFIG.ROOM_SLOT_H || dynamic.slotH;
+    const unifiedRoomH = CONFIG.ROOM_OUTER_H || dynamic.roomH;
+    const rows = Math.max(1, Math.floor((s.availHeight + 2) / unifiedSlotH));
+    const sizing = {
+      roomW: dynamic.roomW,
+      roomH: unifiedRoomH,
+      slotW: dynamic.slotW,
+      slotH: unifiedSlotH,
+      cols: dynamic.cols,
+      rows
+    };
     screenLookup.set(s.label, {
       screen: s,
+      sizing,
       cellCfg: {
         ...CONFIG,
-        ROOM_OUTER_W: CONFIG.ROOM_OUTER_W || (fallbackSizing && fallbackSizing.roomW),
-        ROOM_OUTER_H: CONFIG.ROOM_OUTER_H || (fallbackSizing && fallbackSizing.roomH),
-        ROOM_SLOT_W: CONFIG.ROOM_SLOT_W || (fallbackSizing && fallbackSizing.slotW),
-        ROOM_SLOT_H: CONFIG.ROOM_SLOT_H || (fallbackSizing && fallbackSizing.slotH)
+        ROOM_OUTER_W: sizing.roomW,
+        ROOM_OUTER_H: sizing.roomH,
+        ROOM_SLOT_W: sizing.slotW,
+        ROOM_SLOT_H: sizing.slotH
       }
     });
 
@@ -545,17 +561,24 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   const getCellCanvasBox = (screenLabel, gx, gy) => {
     const entry = screenLookup.get(screenLabel);
     if (!entry) return null;
-    const rect = cellToScreenRect(entry.screen, gx, gy, entry.cellCfg);
-    const slotW = rect.slotWidth || rect.width;
-    const slotH = rect.slotHeight || rect.height;
+    const { screen, sizing, cellCfg } = entry;
+    const rect = cellToScreenRect(screen, gx, gy, cellCfg);
+    const visualSlotW = screen.availWidth / sizing.cols;
+    const visualSlotH = sizing.slotH;
+    const visualLeft = screen.availLeft + gx * visualSlotW;
+    const visualTop = screen.availTop + gy * visualSlotH;
     return {
-      rect,
-      dx: offsetX + (rect.left - minX) * scale,
-      dy: offsetY + (rect.top - minY) * scale,
-      dw: slotW * scale,
-      dh: slotH * scale,
-      ratioX: slotW / (CONFIG.ROOM_OUTER_W || rect.width),
-      ratioY: slotH / (CONFIG.ROOM_OUTER_H || rect.height)
+      rect: {
+        ...rect,
+        left: visualLeft,
+        top: visualTop
+      },
+      dx: offsetX + (visualLeft - minX) * scale,
+      dy: offsetY + (visualTop - minY) * scale,
+      dw: visualSlotW * scale,
+      dh: visualSlotH * scale,
+      ratioX: visualSlotW / (rect.width || CONFIG.ROOM_OUTER_W),
+      ratioY: visualSlotH / (rect.height || CONFIG.ROOM_OUTER_H)
     };
   };
 

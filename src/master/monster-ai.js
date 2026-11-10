@@ -5,6 +5,7 @@ import {
   world,
   OPPOSITE_DIR,
   getDoorPosition,
+  getCellRoomDim,
   getAdjacentCell,
   isGateClosed
 } from './world.js';
@@ -95,8 +96,9 @@ export function updateMonsterAI(channel) {
   if (!monster.cellId || world.isVictory || world.isStageTransition) return;
 
   const isSameRoom = (monster.cellId === player.cellId);
-  const cx = CONFIG.ROOM_OUTER_W / 2;
-  const cy = CONFIG.ROOM_OUTER_H / 2;
+  const { W: roomW, H: roomH } = getCellRoomDim(monster.cellId);
+  const cx = roomW / 2;
+  const cy = roomH / 2;
 
   // Stage 2: 몬스터가 방 중앙(깃발 반경 28px 이내)을 지나가면 해당 방을 적 영토('monster')로 즉시 점령!
   if (currentStage === 2 && world.flagOwners.get(monster.cellId) !== 'monster') {
@@ -173,14 +175,15 @@ export function updateMonsterAI(channel) {
       }
 
       if (monster.targetDir) {
-        const doorPos = getDoorPosition(monster.targetDir, 22);
+        const doorPos = getDoorPosition(monster.targetDir, 22, monster.cellId);
         const reachedDoor = moveMonsterToward(doorPos.x, doorPos.y, stage2MoveSpeed);
         if (reachedDoor) {
           const adj = getAdjacentCell(mScreenLabel, mGx, mGy, monster.targetDir);
           if (adj) {
             const enteredFrom = OPPOSITE_DIR[monster.targetDir];
-            const entryPos = getDoorPosition(enteredFrom, 26);
-            monster.cellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+            const nextCellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+            const entryPos = getDoorPosition(enteredFrom, 26, nextCellId);
+            monster.cellId = nextCellId;
             monster.lx = entryPos.x;
             monster.ly = entryPos.y;
             monster.facing = monster.targetDir;
@@ -194,10 +197,11 @@ export function updateMonsterAI(channel) {
       }
     }
 
+    const { W: curW, H: curH } = getCellRoomDim(monster.cellId);
     const mMinX = 22;
-    const mMaxX = CONFIG.ROOM_OUTER_W - 22;
+    const mMaxX = curW - 22;
     const mMinY = 22;
-    const mMaxY = CONFIG.ROOM_OUTER_H - 22;
+    const mMaxY = curH - 22;
     monster.lx = Math.max(mMinX, Math.min(monster.lx, mMaxX));
     monster.ly = Math.max(mMinY, Math.min(monster.ly, mMaxY));
     return;
@@ -306,15 +310,16 @@ export function updateMonsterAI(channel) {
         monster.passedCenter = true;
       }
     } else {
-      const doorPos = getDoorPosition(monster.targetDir, 22);
+      const doorPos = getDoorPosition(monster.targetDir, 22, monster.cellId);
       const reachedDoor = moveMonsterToward(doorPos.x, doorPos.y, moveSpeed);
 
       if (reachedDoor) {
         const adj = getAdjacentCell(mScreenLabel, mGx, mGy, monster.targetDir);
         if (adj && !isGateClosed(monster.cellId, monster.targetDir)) {
           const enteredFrom = OPPOSITE_DIR[monster.targetDir];
-          const entryPos = getDoorPosition(enteredFrom, 26);
-          monster.cellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+          const nextCellId = getCellId(adj.screen.label, adj.gx, adj.gy);
+          const entryPos = getDoorPosition(enteredFrom, 26, nextCellId);
+          monster.cellId = nextCellId;
           monster.lx = entryPos.x;
           monster.ly = entryPos.y;
           monster.facing = monster.targetDir;
@@ -328,10 +333,11 @@ export function updateMonsterAI(channel) {
     }
   }
 
+  const { W: curW, H: curH } = getCellRoomDim(monster.cellId);
   const mMinX = 22;
-  const mMaxX = CONFIG.ROOM_OUTER_W - 22;
+  const mMaxX = curW - 22;
   const mMinY = 22;
-  const mMaxY = CONFIG.ROOM_OUTER_H - 22;
+  const mMaxY = curH - 22;
   monster.lx = Math.max(mMinX, Math.min(monster.lx, mMaxX));
   monster.ly = Math.max(mMinY, Math.min(monster.ly, mMaxY));
 }

@@ -12,7 +12,8 @@ import {
   getFlagOwnersSnapshot,
   getFlagScores,
   getPrismDirsSnapshot,
-  buildAssignPayload
+  buildAssignPayload,
+  syncConfigToCell
 } from './master/world.js';
 import { updateMonsterAI } from './master/monster-ai.js';
 import {
@@ -77,6 +78,9 @@ const MESSAGE_HANDLERS = {
         };
         world.cellMap.set(lobbyId, cell);
         world.player.cellId = lobbyId;
+        syncConfigToCell(lobbyId);
+        world.player.lx = CONFIG.ROOM_OUTER_W / 2;
+        world.player.ly = CONFIG.ROOM_OUTER_H / 2;
 
         if (!world.exitCellId) {
           generateDungeonEntities(targetScreen.label, 0, 0);
@@ -141,6 +145,7 @@ const MESSAGE_HANDLERS = {
     }
 
     world.player.cellId = nextId;
+    syncConfigToCell(nextId);
     getActiveStageController().onDoorConfirm(nextId);
 
     world.lastDoorTransition = {
@@ -227,6 +232,7 @@ setInterval(() => {
   const { player, monster, boss, flyingSword } = world;
   if (world.cellMap.size === 0 || world.isVictory) return;
 
+  syncConfigToCell(player.cellId);
   const cx = CONFIG.ROOM_OUTER_W / 2;
   const cy = CONFIG.ROOM_OUTER_H / 2;
 

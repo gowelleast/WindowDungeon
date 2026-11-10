@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { MSG } from '../protocol.js';
-import { cellId as getCellId, getSlotSize, isCellValid, parseCellId } from '../grid.js';
+import { cellId as getCellId, getScreenSizing, isCellValid, parseCellId } from '../grid.js';
 
 export const OPPOSITE_DIR = {
   up: 'down',
@@ -147,13 +147,82 @@ export const world = {
   }
 };
 
-export function getDoorPosition(dir, margin = 24) {
-  const cx = CONFIG.ROOM_OUTER_W / 2;
-  const cy = CONFIG.ROOM_OUTER_H / 2;
+export function getScreenByLabel(screenLabel) {
+  return world.screens.find(s => s.label === screenLabel) || world.screens[0] || null;
+}
+
+export function getCellRoomDim(cellId) {
+  if (cellId) {
+    const cell = world.cellMap.get(cellId);
+    if (cell && cell.rect && cell.rect.width && cell.rect.height) {
+      return { W: cell.rect.width, H: cell.rect.height };
+    }
+    const parsed = parseCellId(cellId);
+    const screen = parsed ? getScreenByLabel(parsed.screenLabel) : world.screens[0];
+    if (screen) {
+      const sizing = getScreenSizing(screen, CONFIG);
+      return { W: sizing.roomW, H: sizing.roomH };
+    }
+  }
+  return { W: CONFIG.ROOM_OUTER_W, H: CONFIG.ROOM_OUTER_H };
+}
+
+export function syncConfigToCell(cellId) {
+  const parsed = parseCellId(cellId);
+  const screen = parsed ? getScreenByLabel(parsed.screenLabel) : world.screens[0];
+  if (screen) {
+    const sizing = getScreenSizing(screen, CONFIG);
+    CONFIG.ROOM_OUTER_W = sizing.roomW;
+    CONFIG.ROOM_SLOT_W = sizing.slotW;
+  }
+}
+
+export function getDoorPosition(dir, margin = 24, cellId = null) {
+  const { W, H } = cellId ? getCellRoomDim(cellId) : { W: CONFIG.ROOM_OUTER_W, H: CONFIG.ROOM_OUTER_H };
+  const cx = W / 2;
+  const cy = H / 2;
   if (dir === 'up') return { x: cx, y: margin };
-  if (dir === 'down') return { x: cx, y: CONFIG.ROOM_OUTER_H - margin };
+  if (dir === 'down') return { x: cx, y: H - margin };
   if (dir === 'left') return { x: margin, y: cy };
-  return { x: CONFIG.ROOM_OUTER_W - margin, y: cy };
+  return { x: W - margin, y: cy };
+}
+
+/**
+ * 해상도/분할 수가 다른 두 인접 모니터 사이에서 양방향 대칭(1:1)이 보장되는 셀 인덱스를 계산합니다.
+ */
+function resolveCrossScreenAxis(currStart, currSpan, currSlot, currCount, currIdx, targetStart, targetSpan, targetSlot, targetCount) {
+  const mapCoarseToFine = (cStart, cSlot, cIdx, fStart, fSpan, fSlot, fCount) => {
+    const cellStart = cStart + cIdx * cSlot;
+    const cellEnd = cellStart + cSlot;
+    const fEnd = fStart + fSpan;
+    if (Math.min(cellEnd, fEnd) - Math.max(cellStart, fStart) <= 0) {
+      return -1;
+    }
+    const center = cellStart + cSlot * 0.5;
+    const rawIdx = Math.floor((center - fStart) / fSlot);
+    if (rawIdx < 0 || rawIdx >= fCount) {
+      return -1;
+    }
+    return rawIdx;
+  };
+
+  if (currSlot > targetSlot) {
+    return mapCoarseToFine(currStart, currSlot, currIdx, targetStart, targetSpan, targetSlot, targetCount);
+  }
+  if (currSlot < targetSlot) {
+    for (let tIdx = 0; tIdx < targetCount; tIdx++) {
+      if (mapCoarseToFine(targetStart, targetSlot, tIdx, currStart, currSpan, currSlot, currCount) === currIdx) {
+        return tIdx;
+      }
+    }
+    return -1;
+  }
+
+  // 슬롯 크기가 동일한 경우: 중심점 반올림 매핑이 양방향 일치할 때만 연결
+  const mapped = Math.round((currIdx * currSlot + currStart - targetStart) / targetSlot);
+  if (mapped < 0 || mapped >= targetCount) return -1;
+  const reverse = Math.round((mapped * targetSlot + targetStart - currStart) / currSlot);
+  return reverse === currIdx ? mapped : -1;
 }
 
 export function getAdjacentCell(screenLabel, gx, gy, dir) {
@@ -203,38 +272,43 @@ export function getAdjacentCell(screenLabel, gx, gy, dir) {
   }
 
   if (targetScreen) {
-    let mappedGx = 0;
-    let mappedGy = 0;
-    const { slotW, slotH } = getSlotSize(CONFIG);
+    const currSizing = getScreenSizing(currentScreen, CONFIG);
+    const targetSizing = getScreenSizing(targetScreen, CONFIG);
+    const maxGx = targetSizing.cols - 1;
+    const maxGy = targetSizing.rows - 1;
 
-    const maxGx = Math.floor(targetScreen.availWidth / slotW) - 1;
-    const maxGy = Math.floor(targetScreen.availHeight / slotH) - 1;
+    let mappedGx = -1;
+    let mappedGy = -1;
 
-    const alignY = () => {
-      const y = Math.round((gy * slotH + currentScreen.availTop - targetScreen.availTop) / slotH);
-      return Math.max(0, Math.min(y, maxGy));
-    };
-
-    const alignX = () => {
-      const x = Math.round((gx * slotW + currentScreen.availLeft - targetScreen.availLeft) / slotW);
-      return Math.max(0, Math.min(x, maxGx));
-    };
-
-    if (dir === 'right') {
-      mappedGx = 0;
-      mappedGy = alignY();
-    } else if (dir === 'left') {
-      mappedGx = maxGx;
-      mappedGy = alignY();
-    } else if (dir === 'down') {
-      mappedGy = 0;
-      mappedGx = alignX();
-    } else if (dir === 'up') {
-      mappedGy = maxGy;
-      mappedGx = alignX();
+    if (dir === 'right' || dir === 'left') {
+      mappedGx = (dir === 'right') ? 0 : maxGx;
+      mappedGy = resolveCrossScreenAxis(
+        currentScreen.availTop,
+        currentScreen.availHeight,
+        currSizing.slotH,
+        currSizing.rows,
+        gy,
+        targetScreen.availTop,
+        targetScreen.availHeight,
+        targetSizing.slotH,
+        targetSizing.rows
+      );
+    } else if (dir === 'down' || dir === 'up') {
+      mappedGy = (dir === 'down') ? 0 : maxGy;
+      mappedGx = resolveCrossScreenAxis(
+        currentScreen.availLeft,
+        currentScreen.availWidth,
+        currSizing.slotW,
+        currSizing.cols,
+        gx,
+        targetScreen.availLeft,
+        targetScreen.availWidth,
+        targetSizing.slotW,
+        targetSizing.cols
+      );
     }
 
-    if (isCellValid(targetScreen, mappedGx, mappedGy, CONFIG)) {
+    if (mappedGx >= 0 && mappedGy >= 0 && isCellValid(targetScreen, mappedGx, mappedGy, CONFIG)) {
       return { screen: targetScreen, gx: mappedGx, gy: mappedGy };
     }
   }
@@ -416,10 +490,16 @@ export function prepareStageGridAndSurvivingRoom(startCell, nextStage) {
   world.currentStage = nextStage;
   world.isStageTransition = false;
 
+  syncConfigToCell(startCell.id);
+
   world.cellMap.clear();
   const targetScreen = world.screens.find(s => s.label === startCell.screenLabel) || world.screens[0];
   if (targetScreen) {
     startCell.doors = calculateDoors(targetScreen, startCell.gx, startCell.gy);
+    startCell.rect = startCell.rect || {
+      width: CONFIG.ROOM_OUTER_W,
+      height: CONFIG.ROOM_OUTER_H
+    };
   }
   world.cellMap.set(startCell.id, startCell);
 
@@ -462,9 +542,10 @@ export function placeMonsterAtFarCell(reachableCells, wanderCooldown) {
     : reachableCells[reachableCells.length - 1];
 
   const { monster } = world;
+  const { W, H } = getCellRoomDim(monsterTarget.id);
   monster.cellId = monsterTarget.id;
-  monster.lx = CONFIG.ROOM_OUTER_W / 2;
-  monster.ly = CONFIG.ROOM_OUTER_H / 2;
+  monster.lx = W / 2;
+  monster.ly = H / 2;
   monster.state = 'wandering';
   monster.wanderCooldown = wanderCooldown;
   monster.targetDir = null;

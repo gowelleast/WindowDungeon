@@ -41,7 +41,7 @@ const dynamicH = parseInt(hashParams.get('h'), 10) || initSizing.roomH;
 CONFIG.ROOM_OUTER_W = dynamicW;
 CONFIG.ROOM_OUTER_H = dynamicH;
 CONFIG.ROOM_SLOT_W = initSizing.slotW;
-CONFIG.ROOM_SLOT_H = initSizing.slotH;
+CONFIG.ROOM_SLOT_H = hashParams.get('h') ? (dynamicH + CONFIG.CHROME_OVERHEAD_Y) : initSizing.slotH;
 
 const isMutedParam = hashParams.get('muted');
 if (isMutedParam !== null) {

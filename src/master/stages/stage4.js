@@ -5,6 +5,7 @@ import {
   world,
   OPPOSITE_DIR,
   getDoorPosition,
+  getCellRoomDim,
   getAdjacentCell,
   getGateKey,
   isGateClosed,
@@ -70,8 +71,9 @@ function updateFlyingSwordAI(channel) {
   const parsed = parseCellId(flyingSword.cellId);
   if (!parsed) return;
   const { screenLabel, gx, gy } = parsed;
-  const cx = CONFIG.ROOM_OUTER_W / 2;
-  const cy = CONFIG.ROOM_OUTER_H / 2;
+  const { W: sRoomW, H: sRoomH } = getCellRoomDim(flyingSword.cellId);
+  const cx = sRoomW / 2;
+  const cy = sRoomH / 2;
   const allDirs = ['up', 'down', 'left', 'right'];
 
   const roomDoors = allDirs.filter(d => getAdjacentCell(screenLabel, gx, gy, d) !== null);
@@ -88,8 +90,8 @@ function updateFlyingSwordAI(channel) {
     flyingSword.angle += 0.24;
 
     const margin = 36;
-    flyingSword.lx = Math.max(margin, Math.min(CONFIG.ROOM_OUTER_W - margin, flyingSword.lx));
-    flyingSword.ly = Math.max(margin, Math.min(CONFIG.ROOM_OUTER_H - margin, flyingSword.ly));
+    flyingSword.lx = Math.max(margin, Math.min(sRoomW - margin, flyingSword.lx));
+    flyingSword.ly = Math.max(margin, Math.min(sRoomH - margin, flyingSword.ly));
 
     flyingSword.state = (openDoors.length === 0) ? 'trapped' : 'groggy';
     flyingSword.groggyTimer--;
@@ -167,7 +169,7 @@ function updateFlyingSwordAI(channel) {
     }
     if (flyingSword.awakeningTimer > 0) {
       flyingSword.awakeningTimer--;
-      const dPos = getDoorPosition(flyingSword.targetDir, 18);
+      const dPos = getDoorPosition(flyingSword.targetDir, 18, flyingSword.cellId);
       flyingSword.angle = Math.atan2(dPos.y - flyingSword.ly, dPos.x - flyingSword.lx);
       return;
     }
@@ -206,7 +208,7 @@ function updateFlyingSwordAI(channel) {
   }
   if (!flyingSword.targetDir) return;
 
-  const doorPos = getDoorPosition(flyingSword.targetDir, 20);
+  const doorPos = getDoorPosition(flyingSword.targetDir, 20, flyingSword.cellId);
   const sdx = doorPos.x - flyingSword.lx;
   const sdy = doorPos.y - flyingSword.ly;
   const sdist = Math.hypot(sdx, sdy);
@@ -239,7 +241,7 @@ function updateFlyingSwordAI(channel) {
         const prevCellId = flyingSword.cellId;
         const nextCellId = getCellId(adj.screen.label, adj.gx, adj.gy);
         const enteredFrom = OPPOSITE_DIR[flyingSword.targetDir];
-        const entryPos = getDoorPosition(enteredFrom, 22);
+        const entryPos = getDoorPosition(enteredFrom, 22, nextCellId);
 
         flyingSword.cellId = nextCellId;
         flyingSword.lx = entryPos.x;

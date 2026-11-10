@@ -1,6 +1,6 @@
 import { CONFIG } from '../../config.js';
 import { MSG } from '../../protocol.js';
-import { world, computeReachableGrid } from '../world.js';
+import { world, computeReachableGrid, getCellRoomDim } from '../world.js';
 
 export function generateDungeonEntities(startScreenLabel, startGx, startGy) {
   const { reachableCells, allCells } = computeReachableGrid(startScreenLabel, startGx, startGy);
@@ -52,9 +52,10 @@ export function generateDungeonEntities(startScreenLabel, startGx, startGy) {
     }
 
     const { monster } = world;
+    const { W: mW, H: mH } = getCellRoomDim(monsterTarget.id);
     monster.cellId = monsterTarget.id;
-    monster.lx = CONFIG.ROOM_OUTER_W / 2;
-    monster.ly = CONFIG.ROOM_OUTER_H / 2;
+    monster.lx = mW / 2;
+    monster.ly = mH / 2;
     monster.state = 'wandering';
     monster.wanderCooldown = 90;
     monster.targetDir = null;
