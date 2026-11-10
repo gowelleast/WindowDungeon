@@ -79,6 +79,8 @@ export function initMinimap(channel) {
       screens = data.screens;
       if (data.roomW) CONFIG.ROOM_OUTER_W = data.roomW;
       if (data.roomH) CONFIG.ROOM_OUTER_H = data.roomH;
+      if (data.slotW) CONFIG.ROOM_SLOT_W = data.slotW;
+      if (data.slotH) CONFIG.ROOM_SLOT_H = data.slotH;
       scheduleMinimapRender();
     }),
 
@@ -480,16 +482,36 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   }
   targetCtx.stroke();
 
-  // 2. 모니터 하우징 및 모니터별 동적 방 크기 설정 사전 캐싱
+  // 2. 모니터 하우징 및 방 슬롯 크기 설정 사전 캐싱 (가로는 각 모니터에 딱 맞게, 세로는 기준 높이에 통일)
   const screenLookup = new Map();
   for (const s of screens) {
-    const screenSizing = computeDynamicRoomSize(s.availWidth, s.availHeight);
+    const dynamic = computeDynamicRoomSize(
+      s.availWidth,
+      s.availHeight,
+      380,
+      CONFIG.CHROME_OVERHEAD_Y,
+      CONFIG.CHROME_OVERHEAD_X
+    );
+    const unifiedSlotH = CONFIG.ROOM_SLOT_H || dynamic.slotH;
+    const unifiedRoomH = CONFIG.ROOM_OUTER_H || dynamic.roomH;
+    const rows = Math.max(1, Math.floor((s.availHeight + 2) / unifiedSlotH));
+    const sizing = {
+      roomW: dynamic.roomW,
+      roomH: unifiedRoomH,
+      slotW: dynamic.slotW,
+      slotH: unifiedSlotH,
+      cols: dynamic.cols,
+      rows
+    };
     screenLookup.set(s.label, {
       screen: s,
+      sizing,
       cellCfg: {
         ...CONFIG,
-        ROOM_OUTER_W: screenSizing.roomW,
-        ROOM_OUTER_H: screenSizing.roomH
+        ROOM_OUTER_W: sizing.roomW,
+        ROOM_OUTER_H: sizing.roomH,
+        ROOM_SLOT_W: sizing.slotW,
+        ROOM_SLOT_H: sizing.slotH
       }
     });
 
@@ -516,16 +538,35 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
     targetCtx.fillText(`${s.label}${s.isPrimary ? ' ★' : ''}`, dx + 6, dy + 14);
   }
 
+  const getCellCanvasBox = (screenLabel, gx, gy) => {
+    const entry = screenLookup.get(screenLabel);
+    if (!entry) return null;
+    const { screen, sizing, cellCfg } = entry;
+    const rect = cellToScreenRect(screen, gx, gy, cellCfg);
+    const visualSlotW = screen.availWidth / sizing.cols;
+    const visualSlotH = sizing.slotH;
+    const visualLeft = screen.availLeft + gx * visualSlotW;
+    const visualTop = screen.availTop + gy * visualSlotH;
+    return {
+      rect: {
+        ...rect,
+        left: visualLeft,
+        top: visualTop
+      },
+      dx: offsetX + (visualLeft - minX) * scale,
+      dy: offsetY + (visualTop - minY) * scale,
+      dw: visualSlotW * scale,
+      dh: visualSlotH * scale,
+      ratioX: visualSlotW / (rect.width || CONFIG.ROOM_OUTER_W),
+      ratioY: visualSlotH / (rect.height || CONFIG.ROOM_OUTER_H)
+    };
+  };
+
   // 3. 개척된 방(Cell) 및 출입문(Doors) 그리기
   for (const cell of cellMap.values()) {
-    const entry = screenLookup.get(cell.screenLabel);
-    if (!entry) continue;
-
-    const rect = cellToScreenRect(entry.screen, cell.gx, cell.gy, entry.cellCfg);
-    const dx = offsetX + (rect.left - minX) * scale;
-    const dy = offsetY + (rect.top - minY) * scale;
-    const dw = rect.width * scale;
-    const dh = rect.height * scale;
+    const box = getCellCanvasBox(cell.screenLabel, cell.gx, cell.gy);
+    if (!box) continue;
+    const { dx, dy, dw, dh } = box;
 
     // 방 내부 타일 바닥
     targetCtx.fillStyle = cell.hasFlag ? 'rgba(245, 158, 11, 0.16)' : 'rgba(16, 185, 129, 0.12)';
@@ -562,11 +603,10 @@ function drawMinimapTo(targetCtx, targetCanvas, now) {
   // 4. 플레이어 실시간 레이더 핑(Ping) 그리기
   if (player && cellMap.has(player.activeCellId)) {
     const cell = cellMap.get(player.activeCellId);
-    const entry = screenLookup.get(cell.screenLabel);
-    if (entry) {
-      const rect = cellToScreenRect(entry.screen, cell.gx, cell.gy, entry.cellCfg);
-      const px = rect.left + player.lx;
-      const py = rect.top + player.ly;
+    const box = getCellCanvasBox(cell.screenLabel, cell.gx, cell.gy);
+    if (box) {
+      const px = box.rect.left + player.lx * box.ratioX;
+      const py = box.rect.top + player.ly * box.ratioY;
 
       const pdx = offsetX + (px - minX) * scale;
       const pdy = offsetY + (py - minY) * scale;

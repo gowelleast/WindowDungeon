@@ -1,7 +1,7 @@
 import { DungeonChannel } from './channel.js';
 import { MSG } from './protocol.js';
 import { drawRoom, drawPlayer, drawPrompt, drawFlag, drawDungeonLighting } from './render.js';
-import { CONFIG } from './config.js';
+import { CONFIG, computeDynamicRoomSize } from './config.js';
 import { MultiScreenConfetti } from './confetti.js';
 import { initMinimap, togglePipMinimap } from './minimap.js';
 
@@ -14,10 +14,13 @@ if (!winId || winId === '') {
 if (!winId) winId = 'room-' + Math.floor(Math.random() * 10000);
 
 // 해상도에 맞춘 동적 방 크기(w, h) 적용
-const dynamicW = parseInt(hashParams.get('w'), 10) || CONFIG.ROOM_OUTER_W;
-const dynamicH = parseInt(hashParams.get('h'), 10) || CONFIG.ROOM_OUTER_H;
+const initSizing = computeDynamicRoomSize(window.screen.availWidth, window.screen.availHeight);
+const dynamicW = parseInt(hashParams.get('w'), 10) || initSizing.roomW;
+const dynamicH = parseInt(hashParams.get('h'), 10) || initSizing.roomH;
 CONFIG.ROOM_OUTER_W = dynamicW;
 CONFIG.ROOM_OUTER_H = dynamicH;
+CONFIG.ROOM_SLOT_W = initSizing.slotW;
+CONFIG.ROOM_SLOT_H = hashParams.get('h') ? (dynamicH + CONFIG.CHROME_OVERHEAD_Y) : initSizing.slotH;
 
 window.name = winId;
 document.title = (winId === 'lobby') ? 'Window Dungeon — Lobby' : `Room: ${winId}`;
